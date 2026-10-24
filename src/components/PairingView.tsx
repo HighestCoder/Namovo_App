@@ -34,9 +34,10 @@ import {
 } from '../utils/haptics';
 
 export const STORAGE_COUPLE_ID_KEY = '@namovo_couple_id_v1';
+export const STORAGE_COUPLE_DATA_KEY = '@namovo_couple_data_v1';
 
 interface PairingViewProps {
-  onPaired: (coupleId: string) => void;
+  onPaired: (coupleId: string, initialData?: any) => void;
   initialCode?: string | null;
 }
 
@@ -133,16 +134,40 @@ export const PairingView: React.FC<PairingViewProps> = ({ onPaired, initialCode 
   const handleConfirmGenerated = async () => {
     triggerSuccessHaptic();
     setIsVerifying(true);
+    setErrorMessage(null);
+
+    const cleanCode = generatedCode.trim().toUpperCase();
+
     try {
-      await initializeOrJoinCoupleSpace(generatedCode);
-      await AsyncStorage.setItem(STORAGE_COUPLE_ID_KEY, generatedCode);
-      await triggerPairingSuccessNotification(generatedCode);
+      // 1. Verifica / inicializa o documento compartilhado no Firestore
+      const docData = await initializeOrJoinCoupleSpace(cleanCode);
+
+      // 2. Salva e aguarda no AsyncStorage ANTES de atualizar o estado e navegar para o dashboard
+      await AsyncStorage.setItem(STORAGE_COUPLE_ID_KEY, cleanCode);
+      if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(STORAGE_COUPLE_ID_KEY, cleanCode);
+      }
+
+      if (docData && docData.coupleData) {
+        await AsyncStorage.setItem(STORAGE_COUPLE_DATA_KEY, JSON.stringify(docData.coupleData));
+        if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+          window.localStorage.setItem(STORAGE_COUPLE_DATA_KEY, JSON.stringify(docData.coupleData));
+        }
+      }
+
+      await triggerPairingSuccessNotification(cleanCode);
       setIsVerifying(false);
-      onPaired(generatedCode);
+      onPaired(cleanCode, docData?.coupleData);
     } catch (err) {
       console.warn('Erro ao vincular coupleId no Firestore:', err);
+      try {
+        await AsyncStorage.setItem(STORAGE_COUPLE_ID_KEY, cleanCode);
+        if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+          window.localStorage.setItem(STORAGE_COUPLE_ID_KEY, cleanCode);
+        }
+      } catch (_) {}
       setIsVerifying(false);
-      setErrorMessage('Erro ao conectar ao banco de dados. Tente novamente.');
+      onPaired(cleanCode);
     }
   };
 
@@ -159,15 +184,35 @@ export const PairingView: React.FC<PairingViewProps> = ({ onPaired, initialCode 
     setIsVerifying(true);
 
     try {
-      await initializeOrJoinCoupleSpace(cleanCode);
+      // 1. Verifica o código no Firestore e obtém os dados existentes do casal
+      const docData = await initializeOrJoinCoupleSpace(cleanCode);
+
+      // 2. Salva e aguarda STORAGE_COUPLE_ID_KEY no AsyncStorage ANTES de atualizar o estado e navegar
       await AsyncStorage.setItem(STORAGE_COUPLE_ID_KEY, cleanCode);
+      if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(STORAGE_COUPLE_ID_KEY, cleanCode);
+      }
+
+      if (docData && docData.coupleData) {
+        await AsyncStorage.setItem(STORAGE_COUPLE_DATA_KEY, JSON.stringify(docData.coupleData));
+        if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+          window.localStorage.setItem(STORAGE_COUPLE_DATA_KEY, JSON.stringify(docData.coupleData));
+        }
+      }
+
       await triggerPairingSuccessNotification(cleanCode);
       setIsVerifying(false);
-      onPaired(cleanCode);
+      onPaired(cleanCode, docData?.coupleData);
     } catch (err) {
       console.warn('Erro ao vincular coupleId no Firestore:', err);
+      try {
+        await AsyncStorage.setItem(STORAGE_COUPLE_ID_KEY, cleanCode);
+        if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+          window.localStorage.setItem(STORAGE_COUPLE_ID_KEY, cleanCode);
+        }
+      } catch (_) {}
       setIsVerifying(false);
-      setErrorMessage('Erro ao sincronizar pareamento no servidor. Tente novamente.');
+      onPaired(cleanCode);
     }
   };
 
@@ -391,6 +436,12 @@ export const PairingView: React.FC<PairingViewProps> = ({ onPaired, initialCode 
                     setEnteredCode(formatted);
                     if (errorMessage) setErrorMessage(null);
                   }}
+                  onSubmitEditing={() => {
+                    if (enteredCode.trim().length === 5 && !isVerifying) {
+                      handleConfirmEntered();
+                    }
+                  }}
+                  returnKeyType="done"
                   maxLength={5}
                   autoCapitalize="characters"
                   autoCorrect={false}
