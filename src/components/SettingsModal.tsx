@@ -58,8 +58,6 @@ interface SettingsModalProps {
   onLockApp?: () => void;
 }
 
-const STORAGE_KEY = '@namovo_couple_data_v1';
-
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   visible,
   coupleData,
@@ -217,12 +215,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       partner2: p2,
       startDate: isoDate,
     };
-
-    try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    } catch (err) {
-      console.warn('Erro ao salvar configurações no AsyncStorage:', err);
-    }
 
     triggerSuccessHaptic();
     onSave(updated);

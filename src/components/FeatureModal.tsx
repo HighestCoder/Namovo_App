@@ -13,10 +13,13 @@ import {
   TextInput,
   Alert,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Flower2, X, Plus, Sparkles, Heart, Trash2, Calendar, Send } from 'lucide-react-native';
 import { COLORS } from '../theme/colors';
 import { ActiveCornerModal, CoupleMemory } from '../types';
+import {
+  subscribeToMemories,
+  saveMemoriesToFirestore,
+} from '../services/firebase';
 
 interface FeatureModalProps {
   activeModal: ActiveCornerModal;
@@ -24,7 +27,6 @@ interface FeatureModalProps {
   onEditRequested?: () => void;
 }
 
-const STORAGE_KEY_MEMORIES = '@namovo_memories_v1';
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 const INITIAL_MEMORIES: CoupleMemory[] = [
@@ -64,31 +66,25 @@ export const FeatureModal: React.FC<FeatureModalProps> = ({
   const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
-  // Carrega lembranças do AsyncStorage
+  // Sincronização em tempo real (onSnapshot) das lembranças no Firestore
   useEffect(() => {
-    const loadMemories = async () => {
-      try {
-        const stored = await AsyncStorage.getItem(STORAGE_KEY_MEMORIES);
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setMemories(parsed);
-            return;
-          }
-        }
-        // Se vazio, salva os exemplos iniciais
+    let seeded = false;
+    const unsubscribe = subscribeToMemories((remoteMemories) => {
+      if (remoteMemories && remoteMemories.length > 0) {
+        setMemories(remoteMemories);
+      } else if (!seeded) {
+        seeded = true;
         setMemories(INITIAL_MEMORIES);
-        await AsyncStorage.setItem(STORAGE_KEY_MEMORIES, JSON.stringify(INITIAL_MEMORIES));
-      } catch (err) {
-        console.warn('Erro ao carregar lembranças:', err);
-        setMemories(INITIAL_MEMORIES);
+        saveMemoriesToFirestore(INITIAL_MEMORIES);
+      } else {
+        setMemories([]);
       }
-    };
+    });
 
-    if (activeModal === 'memories') {
-      loadMemories();
-    }
-  }, [activeModal]);
+    return () => {
+      unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     if (activeModal === 'memories') {
@@ -147,11 +143,7 @@ export const FeatureModal: React.FC<FeatureModalProps> = ({
 
     const updated = [newMemory, ...memories];
     setMemories(updated);
-    try {
-      await AsyncStorage.setItem(STORAGE_KEY_MEMORIES, JSON.stringify(updated));
-    } catch (err) {
-      console.warn('Erro ao salvar lembrança:', err);
-    }
+    await saveMemoriesToFirestore(updated);
 
     setNewTitle('');
     setNewContent('');
@@ -161,11 +153,7 @@ export const FeatureModal: React.FC<FeatureModalProps> = ({
   const handleDeleteMemory = async (id: string) => {
     const updated = memories.filter((m) => m.id !== id);
     setMemories(updated);
-    try {
-      await AsyncStorage.setItem(STORAGE_KEY_MEMORIES, JSON.stringify(updated));
-    } catch (err) {
-      console.warn('Erro ao deletar lembrança:', err);
-    }
+    await saveMemoriesToFirestore(updated);
   };
 
   if (activeModal !== 'memories') return null;

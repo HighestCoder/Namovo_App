@@ -77,20 +77,23 @@ export const CartasModal: React.FC<CartasModalProps> = ({
   }, []);
 
   // Assinatura em tempo real do Firestore via onSnapshot
+  const prevCountRef = useRef<number>(0);
+
   useEffect(() => {
     let initialLoaded = false;
     const unsubscribe = subscribeToChatMessages((remoteMessages) => {
       // Ordenação cronológica estrita
       const sorted = [...remoteMessages].sort((a, b) => a.createdAt - b.createdAt);
 
-      // Notificação se uma nova mensagem do parceiro chegar enquanto o modal ou app estiver em background/foreground
-      if (initialLoaded && sorted.length > messages.length) {
+      // Notificação se uma nova mensagem do parceiro chegar enquanto o modal ou app estiver aberto/background
+      if (initialLoaded && sorted.length > prevCountRef.current) {
         const latestMsg = sorted[sorted.length - 1];
-        if (latestMsg.senderName !== currentSender) {
+        if (latestMsg && latestMsg.senderName !== currentSender) {
           triggerPartnerMessageNotification(latestMsg.senderName, latestMsg.text);
         }
       }
 
+      prevCountRef.current = sorted.length;
       setMessages(sorted);
       setIsLoading(false);
       initialLoaded = true;
@@ -104,7 +107,7 @@ export const CartasModal: React.FC<CartasModalProps> = ({
     return () => {
       unsubscribe();
     };
-  }, [currentSender, messages.length]);
+  }, [currentSender]);
 
   // Transições de abertura e fechamento
   useEffect(() => {

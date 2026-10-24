@@ -12,7 +12,6 @@ import {
   TouchableOpacity,
   Image,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   Heart,
@@ -28,6 +27,11 @@ import {
 } from 'lucide-react-native';
 import { COLORS } from '../theme/colors';
 import { CoupleData, TimeTogether, ActiveCornerModal } from '../types';
+import {
+  subscribeToCoupleDocument,
+  saveCoupleInteractiveStateToFirestore,
+  getActiveCoupleCode,
+} from '../services/firebase';
 import {
   calculateTimeTogether,
   formatElegantDate,
@@ -57,9 +61,6 @@ interface HomeViewProps {
   onUpdateCoupleData?: (updated: CoupleData) => void;
   onLockApp?: () => void;
 }
-
-const STORAGE_MOOD_KEY = '@namovo_couple_mood_v1';
-const STORAGE_LOVE_TAPS_KEY = '@namovo_love_taps_v1';
 
 const COUPLE_MOODS = [
   { emoji: '✨', label: 'Em sintonia perfeita' },
@@ -118,30 +119,26 @@ export const HomeView: React.FC<HomeViewProps> = ({
     setCoupleInfo(data);
   }, [data]);
 
-  // Carrega humor e contador de carinho salvos
+  // Sincroniza humor e contador de carinho em tempo real via onSnapshot no Firestore
   useEffect(() => {
-    const loadInteractiveState = async () => {
-      try {
-        const [savedMood, savedTaps] = await Promise.all([
-          AsyncStorage.getItem(STORAGE_MOOD_KEY),
-          AsyncStorage.getItem(STORAGE_LOVE_TAPS_KEY),
-        ]);
-        if (savedMood !== null) {
-          const idx = parseInt(savedMood, 10);
-          if (!isNaN(idx) && idx >= 0 && idx < COUPLE_MOODS.length) {
-            setMoodIndex(idx);
-          }
-        }
-        if (savedTaps !== null) {
-          const taps = parseInt(savedTaps, 10);
-          if (!isNaN(taps)) setLoveTaps(taps);
-        }
-      } catch (err) {
-        console.warn('Erro ao carregar estado interativo:', err);
+    const code = coupleCode || getActiveCoupleCode();
+    const unsubscribe = subscribeToCoupleDocument(code, (docData) => {
+      if (
+        typeof docData.moodIndex === 'number' &&
+        docData.moodIndex >= 0 &&
+        docData.moodIndex < COUPLE_MOODS.length
+      ) {
+        setMoodIndex(docData.moodIndex);
       }
+      if (typeof docData.loveTaps === 'number') {
+        setLoveTaps(docData.loveTaps);
+      }
+    });
+
+    return () => {
+      unsubscribe();
     };
-    loadInteractiveState();
-  }, []);
+  }, [coupleCode]);
 
   // Foto em destaque (usa a salva pelo usuário ou a padrão sofisticada)
   const [featuredPhoto, setFeaturedPhoto] = useState(
@@ -205,11 +202,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
     ]).start();
 
     setMoodIndex(nextIdx);
-    try {
-      await AsyncStorage.setItem(STORAGE_MOOD_KEY, String(nextIdx));
-    } catch (err) {
-      console.warn('Erro ao salvar humor:', err);
-    }
+    await saveCoupleInteractiveStateToFirestore(
+      { moodIndex: nextIdx },
+      coupleCode || undefined
+    );
   };
 
   // Enviar carinho na foto (Animação de coração flutuante)
@@ -243,11 +239,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
       ]),
     ]).start();
 
-    try {
-      await AsyncStorage.setItem(STORAGE_LOVE_TAPS_KEY, String(nextTaps));
-    } catch (err) {
-      console.warn('Erro ao salvar carinho:', err);
-    }
+    await saveCoupleInteractiveStateToFirestore(
+      { loveTaps: nextTaps },
+      coupleCode || undefined
+    );
   };
 
   // Alternar modo do badge inferior do cronômetro

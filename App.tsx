@@ -18,8 +18,11 @@ import { OnboardingView } from './src/components/OnboardingView';
 import { HomeView } from './src/components/HomeView';
 import { CoupleData } from './src/types';
 import { COLORS } from './src/theme/colors';
-
-const STORAGE_KEY = '@namovo_couple_data_v1';
+import {
+  setActiveCoupleCode,
+  subscribeToCoupleDocument,
+  saveCoupleDataToFirestore,
+} from './src/services/firebase';
 
 export default function App() {
   const [coupleData, setCoupleData] = useState<CoupleData | null>(null);
@@ -60,9 +63,9 @@ export default function App() {
     }
   }, []);
 
-  // 2. Carrega dados salvos e permissão de acesso ao inicializar
+  // 2. Carrega apenas sessão local (PIN de acesso privado e Couple Code) do AsyncStorage
   useEffect(() => {
-    const loadStoredData = async () => {
+    const loadStoredSession = async () => {
       try {
         // Verifica barreira inicial de acesso privado (PIN 6 dígitos: 021727)
         const privateAccess = await AsyncStorage.getItem(STORAGE_PRIVATE_ACCESS_KEY);
@@ -70,27 +73,44 @@ export default function App() {
           setHasPrivateAccess(true);
         }
 
-        // Verifica código do casal (Couple Code)
+        // Verifica código do casal (Couple Code) salvo para persistência de sessão
         const storedCoupleId = await AsyncStorage.getItem(STORAGE_COUPLE_ID_KEY);
         if (storedCoupleId) {
+          setActiveCoupleCode(storedCoupleId);
           setCoupleId(storedCoupleId);
-        }
-
-        // Verifica dados do casal
-        const stored = await AsyncStorage.getItem(STORAGE_KEY);
-        if (stored) {
-          const parsed: CoupleData = JSON.parse(stored);
-          setCoupleData(parsed);
+        } else {
+          setIsLoading(false);
         }
       } catch (err) {
-        console.warn('Erro ao carregar dados locais:', err);
-      } finally {
+        console.warn('Erro ao carregar sessão local:', err);
         setIsLoading(false);
       }
     };
 
-    loadStoredData();
+    loadStoredSession();
   }, []);
+
+  // 2.1. Assinatura em tempo real (onSnapshot) do documento compartilhado no Firestore (couples/{coupleCode})
+  useEffect(() => {
+    if (!coupleId) return;
+
+    setActiveCoupleCode(coupleId);
+
+    const safetyTimer = setTimeout(() => {
+      setIsLoading(false);
+    }, 3500);
+
+    const unsubscribe = subscribeToCoupleDocument(coupleId, (docData) => {
+      clearTimeout(safetyTimer);
+      setCoupleData(docData.coupleData ?? null);
+      setIsLoading(false);
+    });
+
+    return () => {
+      clearTimeout(safetyTimer);
+      unsubscribe();
+    };
+  }, [coupleId]);
 
   // 3. Monitoramento do ciclo de vida: Bloqueio automático após mais de 2 minutos em segundo plano
   useEffect(() => {
@@ -204,7 +224,7 @@ export default function App() {
     setHasPrivateAccess(false);
   };
 
-  // Transição: Salvar dados e ir para a Home
+  // Transição: Salvar dados no Firestore (documento compartilhado do casal) e ir para a Home
   const handleSaveData = async (data: CoupleData) => {
     Animated.parallel([
       Animated.timing(fadeAnim, {
@@ -218,13 +238,9 @@ export default function App() {
         useNativeDriver: Platform.OS !== 'web',
       }),
     ]).start(async () => {
-      try {
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-      } catch (err) {
-        console.warn('Erro ao salvar localmente:', err);
-      }
       setCoupleData(data);
       setIsEditing(false);
+      await saveCoupleDataToFirestore(data, coupleId || undefined);
     });
   };
 
@@ -246,17 +262,13 @@ export default function App() {
     });
   };
 
-  // Atualização direta das configurações do casal (nomes e data de início)
+  // Atualização direta das configurações do casal no Firestore (nomes e data de início)
   const handleUpdateCoupleData = async (updated: CoupleData) => {
-    try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    } catch (err) {
-      console.warn('Erro ao atualizar dados do casal:', err);
-    }
     setCoupleData(updated);
+    await saveCoupleDataToFirestore(updated, coupleId || undefined);
   };
 
-  // Atualização da foto / mídia em destaque
+  // Atualização da foto / mídia em destaque no Firestore
   const handleUpdateFeaturedPhoto = async (newUrl: string, caption?: string) => {
     if (!coupleData) return;
     const updated: CoupleData = {
@@ -264,15 +276,11 @@ export default function App() {
       featuredImage: newUrl,
       featuredCaption: caption || coupleData.featuredCaption,
     };
-    try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    } catch (err) {
-      console.warn('Erro ao atualizar foto em destaque:', err);
-    }
     setCoupleData(updated);
+    await saveCoupleDataToFirestore(updated, coupleId || undefined);
   };
 
-  // Transição: Redefinir dados completamente
+  // Transição: Redefinir dados do casal no Firestore
   const handleResetData = async () => {
     Animated.parallel([
       Animated.timing(fadeAnim, {
@@ -281,13 +289,9 @@ export default function App() {
         useNativeDriver: Platform.OS !== 'web',
       }),
     ]).start(async () => {
-      try {
-        await AsyncStorage.removeItem(STORAGE_KEY);
-      } catch (err) {
-        console.warn('Erro ao limpar dados:', err);
-      }
       setCoupleData(null);
       setIsEditing(false);
+      await saveCoupleDataToFirestore(null, coupleId || undefined);
     });
   };
 

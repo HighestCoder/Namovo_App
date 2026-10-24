@@ -14,7 +14,6 @@ import {
   ScrollView,
   Linking,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   Gift,
   ExternalLink,
@@ -32,6 +31,10 @@ import {
 } from 'lucide-react-native';
 import { COLORS } from '../theme/colors';
 import { GiftIdea } from '../types';
+import {
+  subscribeToGifts,
+  saveGiftsToFirestore,
+} from '../services/firebase';
 import { triggerNewGiftNotification } from '../services/notifications';
 import { triggerSuccessHaptic, triggerSelectionHaptic } from '../utils/haptics';
 
@@ -41,8 +44,6 @@ interface GiftsModalProps {
   partner1Name?: string;
   partner2Name?: string;
 }
-
-const STORAGE_GIFTS_KEY = '@namovo_gift_ideas_v1';
 
 const INITIAL_GIFTS: GiftIdea[] = [
   {
@@ -103,38 +104,30 @@ export const GiftsModal: React.FC<GiftsModalProps> = ({
   const slideAnim = useRef(new Animated.Value(350)).current;
   const formAnim = useRef(new Animated.Value(0)).current;
 
-  // Carrega lista persistida ao iniciar
+  // Sincronização em tempo real (onSnapshot) da lista de presentes no Firestore
   useEffect(() => {
-    let isMounted = true;
-    const loadGifts = async () => {
-      try {
-        const stored = await AsyncStorage.getItem(STORAGE_GIFTS_KEY);
-        if (stored && isMounted) {
-          const parsed: GiftIdea[] = JSON.parse(stored);
-          setGifts(parsed);
-        } else if (isMounted) {
-          setGifts(INITIAL_GIFTS);
-          await AsyncStorage.setItem(STORAGE_GIFTS_KEY, JSON.stringify(INITIAL_GIFTS));
-        }
-      } catch (err) {
-        console.warn('Erro ao carregar lista de presentes:', err);
+    let seeded = false;
+    const unsubscribe = subscribeToGifts((remoteGifts) => {
+      if (remoteGifts && remoteGifts.length > 0) {
+        setGifts(remoteGifts);
+      } else if (!seeded) {
+        seeded = true;
+        setGifts(INITIAL_GIFTS);
+        saveGiftsToFirestore(INITIAL_GIFTS);
+      } else {
+        setGifts([]);
       }
-    };
+    });
 
-    loadGifts();
     return () => {
-      isMounted = false;
+      unsubscribe();
     };
   }, []);
 
-  // Salva no AsyncStorage com tratamento seguro
+  // Salva no Firestore (sincronizando ambos os dispositivos em tempo real)
   const persistGifts = useCallback(async (updated: GiftIdea[]) => {
     setGifts(updated);
-    try {
-      await AsyncStorage.setItem(STORAGE_GIFTS_KEY, JSON.stringify(updated));
-    } catch (err) {
-      console.warn('Erro ao salvar lista de presentes:', err);
-    }
+    await saveGiftsToFirestore(updated);
   }, []);
 
   const resetForm = useCallback(() => {

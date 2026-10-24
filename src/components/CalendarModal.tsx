@@ -14,7 +14,6 @@ import {
   ScrollView,
   Dimensions,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   CalendarHeart,
   ChevronLeft,
@@ -30,6 +29,10 @@ import {
 } from 'lucide-react-native';
 import { COLORS } from '../theme/colors';
 import { CalendarEvent } from '../types';
+import {
+  subscribeToCalendarEvents,
+  saveCalendarEventsToFirestore,
+} from '../services/firebase';
 import { scheduleCalendarReminder } from '../services/notifications';
 import { triggerSuccessHaptic, triggerLightHaptic } from '../utils/haptics';
 
@@ -38,7 +41,6 @@ interface CalendarModalProps {
   onClose: () => void;
 }
 
-const STORAGE_CALENDAR_KEY = '@namovo_calendar_events_v2';
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 const MONTH_NAMES = [
@@ -131,34 +133,31 @@ export const CalendarModal: React.FC<CalendarModalProps> = ({ visible, onClose }
   const slideAnim = useRef(new Animated.Value(350)).current;
   const formScaleAnim = useRef(new Animated.Value(1)).current;
 
-  // Carrega eventos salvos no AsyncStorage
+  // Sincronização em tempo real (onSnapshot) dos eventos do calendário no Firestore
   useEffect(() => {
-    const loadEvents = async () => {
-      try {
-        const stored = await AsyncStorage.getItem(STORAGE_CALENDAR_KEY);
-        if (stored) {
-          const parsed: CalendarEvent[] = JSON.parse(stored);
-          setEvents(parsed);
-        } else {
-          const initial = getInitialEvents();
-          setEvents(initial);
-          await AsyncStorage.setItem(STORAGE_CALENDAR_KEY, JSON.stringify(initial));
-        }
-      } catch (err) {
-        console.warn('Erro ao carregar calendário:', err);
+    let seeded = false;
+    const unsubscribe = subscribeToCalendarEvents((remoteEvents) => {
+      if (remoteEvents && remoteEvents.length > 0) {
+        setEvents(remoteEvents);
+      } else if (!seeded) {
+        seeded = true;
+        const initial = getInitialEvents();
+        setEvents(initial);
+        saveCalendarEventsToFirestore(initial);
+      } else {
+        setEvents([]);
       }
+    });
+
+    return () => {
+      unsubscribe();
     };
-    loadEvents();
   }, []);
 
-  // Salva no AsyncStorage sempre que os eventos mudarem
+  // Salva no Firestore sempre que os eventos mudarem
   const persistEvents = async (updatedList: CalendarEvent[]) => {
     setEvents(updatedList);
-    try {
-      await AsyncStorage.setItem(STORAGE_CALENDAR_KEY, JSON.stringify(updatedList));
-    } catch (err) {
-      console.warn('Erro ao salvar eventos do calendário:', err);
-    }
+    await saveCalendarEventsToFirestore(updatedList);
   };
 
   // Animação de abertura / fechamento

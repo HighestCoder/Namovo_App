@@ -15,7 +15,6 @@ import {
   KeyboardAvoidingView,
   SafeAreaView,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   Plane,
@@ -33,6 +32,10 @@ import {
 } from 'lucide-react-native';
 import { COLORS } from '../theme/colors';
 import { Trip } from '../types';
+import {
+  subscribeToTrips,
+  saveTripsToFirestore,
+} from '../services/firebase';
 import { applyDateMask, parseDateInputToISO, formatElegantDate } from '../utils/timeCalculation';
 import { pickMediaFromDevice, capturePhotoFromCamera } from '../utils/mediaPicker';
 
@@ -41,7 +44,6 @@ interface TravelFeedModalProps {
   onClose: () => void;
 }
 
-const STORAGE_KEY = '@namovo_trips_v1';
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const PRESET_EMOJIS = ['✈️', '🌍', '🏝️', '🗺️', '🏔️', '🌆', '🚢', '🎒', '🏖️', '🥂'];
@@ -89,28 +91,29 @@ export const TravelFeedModal: React.FC<TravelFeedModalProps> = ({ visible, onClo
   const [manualPhotoUrl, setManualPhotoUrl] = useState('');
   const [showManualLinkInput, setShowManualLinkInput] = useState(false);
 
-  // ----- load / save com AsyncStorage -----
-  const loadTrips = useCallback(async () => {
-    try {
-      const raw = await AsyncStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        setTrips(JSON.parse(raw));
-      } else {
+  // ----- Sincronização em tempo real (onSnapshot) no Firestore -----
+  useEffect(() => {
+    let seeded = false;
+    const unsubscribe = subscribeToTrips((remoteTrips) => {
+      if (remoteTrips && remoteTrips.length > 0) {
+        setTrips(remoteTrips);
+      } else if (!seeded) {
+        seeded = true;
         setTrips(INITIAL_TRIPS);
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(INITIAL_TRIPS));
+        saveTripsToFirestore(INITIAL_TRIPS);
+      } else {
+        setTrips([]);
       }
-    } catch (_) {}
+    });
+
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
   const saveTrips = useCallback(async (updated: Trip[]) => {
-    try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    } catch (_) {}
+    await saveTripsToFirestore(updated);
   }, []);
-
-  useEffect(() => {
-    if (visible) loadTrips();
-  }, [visible, loadTrips]);
 
   // ----- modal animations -----
   useEffect(() => {

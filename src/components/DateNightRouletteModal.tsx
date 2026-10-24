@@ -14,7 +14,6 @@ import {
   Image,
   KeyboardAvoidingView,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   Shuffle,
   Plus,
@@ -30,6 +29,10 @@ import {
 } from 'lucide-react-native';
 import { COLORS } from '../theme/colors';
 import { RouletteLocation } from '../types';
+import {
+  subscribeToRouletteLocations,
+  saveRouletteLocationsToFirestore,
+} from '../services/firebase';
 import { pickMediaFromDevice, capturePhotoFromCamera } from '../utils/mediaPicker';
 
 interface DateNightRouletteModalProps {
@@ -37,7 +40,6 @@ interface DateNightRouletteModalProps {
   onClose: () => void;
 }
 
-const STORAGE_KEY = '@namovo_roulette_v1';
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const PRESET_EMOJIS = ['🍕', '🎬', '🌿', '🎡', '🍷', '🎭', '🏖️', '🌃', '🧁', '⛵'];
@@ -129,28 +131,29 @@ export const DateNightRouletteModal: React.FC<DateNightRouletteModalProps> = ({
     Array.from({ length: NUM_CONFETTI }, () => CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)])
   ).current;
 
-  // ----- load / save com persistência no AsyncStorage -----
-  const loadLocations = useCallback(async () => {
-    try {
-      const raw = await AsyncStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        setLocations(JSON.parse(raw));
-      } else {
+  // ----- Sincronização em tempo real (onSnapshot) no Firestore -----
+  useEffect(() => {
+    let seeded = false;
+    const unsubscribe = subscribeToRouletteLocations((remoteLocations) => {
+      if (remoteLocations && remoteLocations.length > 0) {
+        setLocations(remoteLocations);
+      } else if (!seeded) {
+        seeded = true;
         setLocations(INITIAL_LOCATIONS);
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(INITIAL_LOCATIONS));
+        saveRouletteLocationsToFirestore(INITIAL_LOCATIONS);
+      } else {
+        setLocations([]);
       }
-    } catch (_) {}
+    });
+
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
   const saveLocations = useCallback(async (updated: RouletteLocation[]) => {
-    try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    } catch (_) {}
+    await saveRouletteLocationsToFirestore(updated);
   }, []);
-
-  useEffect(() => {
-    if (visible) loadLocations();
-  }, [visible, loadLocations]);
 
   // ----- modal open / close animation -----
   useEffect(() => {

@@ -26,6 +26,7 @@ import {
 } from 'lucide-react-native';
 import { COLORS } from '../theme/colors';
 import { triggerPairingSuccessNotification } from '../services/notifications';
+import { initializeOrJoinCoupleSpace } from '../services/firebase';
 import {
   triggerLightHaptic,
   triggerSelectionHaptic,
@@ -128,24 +129,24 @@ export const PairingView: React.FC<PairingViewProps> = ({ onPaired, initialCode 
     }
   };
 
-  // Concluir pareamento com código gerado
+  // Concluir pareamento com código gerado (cria ou conecta ao doc `couples/{code}` no Firestore)
   const handleConfirmGenerated = async () => {
     triggerSuccessHaptic();
     setIsVerifying(true);
     try {
+      await initializeOrJoinCoupleSpace(generatedCode);
       await AsyncStorage.setItem(STORAGE_COUPLE_ID_KEY, generatedCode);
       await triggerPairingSuccessNotification(generatedCode);
-      setTimeout(() => {
-        setIsVerifying(false);
-        onPaired(generatedCode);
-      }, 500);
-    } catch (err) {
-      console.warn('Erro ao salvar coupleId:', err);
       setIsVerifying(false);
+      onPaired(generatedCode);
+    } catch (err) {
+      console.warn('Erro ao vincular coupleId no Firestore:', err);
+      setIsVerifying(false);
+      setErrorMessage('Erro ao conectar ao banco de dados. Tente novamente.');
     }
   };
 
-  // Concluir pareamento com código digitado
+  // Concluir pareamento com código digitado (conecta ao doc compartilhado `couples/{code}` no Firestore)
   const handleConfirmEntered = async () => {
     const cleanCode = enteredCode.trim().toUpperCase();
     if (cleanCode.length !== 5) {
@@ -158,17 +159,15 @@ export const PairingView: React.FC<PairingViewProps> = ({ onPaired, initialCode 
     setIsVerifying(true);
 
     try {
-      // Simulação elegante de handshake de pareamento local
-      setTimeout(async () => {
-        await AsyncStorage.setItem(STORAGE_COUPLE_ID_KEY, cleanCode);
-        await triggerPairingSuccessNotification(cleanCode);
-        setIsVerifying(false);
-        onPaired(cleanCode);
-      }, 700);
-    } catch (err) {
-      console.warn('Erro ao vincular coupleId:', err);
+      await initializeOrJoinCoupleSpace(cleanCode);
+      await AsyncStorage.setItem(STORAGE_COUPLE_ID_KEY, cleanCode);
+      await triggerPairingSuccessNotification(cleanCode);
       setIsVerifying(false);
-      setErrorMessage('Erro ao salvar pareamento. Tente novamente.');
+      onPaired(cleanCode);
+    } catch (err) {
+      console.warn('Erro ao vincular coupleId no Firestore:', err);
+      setIsVerifying(false);
+      setErrorMessage('Erro ao sincronizar pareamento no servidor. Tente novamente.');
     }
   };
 
