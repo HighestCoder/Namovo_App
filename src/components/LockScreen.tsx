@@ -140,6 +140,9 @@ export const LockScreen: React.FC<LockScreenProps> = ({ onUnlock }) => {
       setTimeout(async () => {
         try {
           await triggerSuccessHaptic();
+          if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+            window.localStorage.setItem(STORAGE_PRIVATE_ACCESS_KEY, 'true');
+          }
           await AsyncStorage.setItem(STORAGE_PRIVATE_ACCESS_KEY, 'true');
         } catch (err) {
           console.warn('Erro ao salvar acesso privado:', err);

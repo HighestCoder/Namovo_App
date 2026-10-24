@@ -1,5 +1,5 @@
 import './global.css';
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -42,7 +42,7 @@ export default function App() {
   const [hasPrivateAccess, setHasPrivateAccess] = useState<boolean>(false);
   const [isAutoLocked, setIsAutoLocked] = useState<boolean>(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isAppReady, setIsAppReady] = useState<boolean>(false);
 
   // Animações para transição suave entre os dois estados
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -75,71 +75,88 @@ export default function App() {
     }
   }, []);
 
-  // 2. Carrega sessão local (PIN de acesso privado, Couple Code e Cache) do AsyncStorage
-  const loadStoredSession = useCallback(async () => {
-    try {
-      // 1. Verifica barreira inicial de acesso privado (PIN 6 dígitos: 021727)
-      const privateAccess = await AsyncStorage.getItem(STORAGE_PRIVATE_ACCESS_KEY);
-      if (privateAccess === 'true') {
-        setHasPrivateAccess(true);
-      }
-
-      // 2. Verifica código do casal (Couple Code) salvo para persistência de sessão
-      let storedCoupleId = await AsyncStorage.getItem(STORAGE_COUPLE_ID_KEY);
-      if (
-        !storedCoupleId &&
-        Platform.OS === 'web' &&
-        typeof window !== 'undefined' &&
-        window.localStorage
-      ) {
-        storedCoupleId = window.localStorage.getItem(STORAGE_COUPLE_ID_KEY);
-      }
-
-      if (storedCoupleId && storedCoupleId.trim()) {
-        const cleanCode = storedCoupleId.trim().toUpperCase();
-        setActiveCoupleCode(cleanCode);
-        setCoupleId(cleanCode);
-
-        // Validação no boot: verifica se o documento existe no Firestore.
-        // Aceita TANTO criador quanto participante (joiner). Nunca apaga dados locais do joiner.
-        validateCoupleCodeInFirestore(cleanCode)
-          .then((exists) => {
-            if (exists) {
-              setCoupleId(cleanCode);
-              setActiveCoupleCode(cleanCode);
-            }
-          })
-          .catch(() => {});
-      }
-
-      // 3. Carrega cache local dos dados do casal para renderização instantânea do dashboard
-      let cachedData = await AsyncStorage.getItem(STORAGE_COUPLE_DATA_KEY);
-      if (
-        !cachedData &&
-        Platform.OS === 'web' &&
-        typeof window !== 'undefined' &&
-        window.localStorage
-      ) {
-        cachedData = window.localStorage.getItem(STORAGE_COUPLE_DATA_KEY);
-      }
-      if (cachedData) {
-        try {
-          const parsed = JSON.parse(cachedData);
-          if (parsed && parsed.partner1 && parsed.partner2) {
-            setCoupleData(parsed);
-          }
-        } catch (_) {}
-      }
-    } catch (err) {
-      console.warn('Erro ao carregar sessão local:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
+  // 2. Hidratação estrita e global do armazenamento local (AsyncStorage e window.localStorage)
+  // Bloqueia qualquer renderização de telas (PIN, Pareamento, Home) até que ambos os valores estejam carregados
   useEffect(() => {
-    loadStoredSession();
-  }, [loadStoredSession]);
+    let isMounted = true;
+
+    const hydrateStorage = async () => {
+      try {
+        // Leitura simultânea do status do PIN de privacidade, Couple Code e Cache do casal
+        let [storedPrivateAccess, storedCoupleId, cachedData] = await Promise.all([
+          AsyncStorage.getItem(STORAGE_PRIVATE_ACCESS_KEY).catch(() => null),
+          AsyncStorage.getItem(STORAGE_COUPLE_ID_KEY).catch(() => null),
+          AsyncStorage.getItem(STORAGE_COUPLE_DATA_KEY).catch(() => null),
+        ]);
+
+        // Fallback e sincronização direta com window.localStorage no ambiente Web / Safari iOS PWA
+        if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+          try {
+            if (!storedPrivateAccess) {
+              storedPrivateAccess = window.localStorage.getItem(STORAGE_PRIVATE_ACCESS_KEY);
+            }
+            if (!storedCoupleId) {
+              storedCoupleId = window.localStorage.getItem(STORAGE_COUPLE_ID_KEY);
+            }
+            if (!cachedData) {
+              cachedData = window.localStorage.getItem(STORAGE_COUPLE_DATA_KEY);
+            }
+          } catch (storageErr) {
+            console.warn('Aviso ao ler window.localStorage no boot:', storageErr);
+          }
+        }
+
+        if (!isMounted) return;
+
+        // 1. Hidrata o status do PIN de privacidade (Acesso Privado 021727)
+        if (storedPrivateAccess === 'true') {
+          setHasPrivateAccess(true);
+        } else {
+          setHasPrivateAccess(false);
+        }
+
+        // 2. Hidrata o código do casal (Couple Code)
+        if (storedCoupleId && storedCoupleId.trim()) {
+          const cleanCode = storedCoupleId.trim().toUpperCase();
+          setActiveCoupleCode(cleanCode);
+          setCoupleId(cleanCode);
+
+          // Validação silenciosa em segundo plano no Firestore (preserva dados de parceiro e criador)
+          validateCoupleCodeInFirestore(cleanCode)
+            .then((exists) => {
+              if (exists && isMounted) {
+                setCoupleId(cleanCode);
+                setActiveCoupleCode(cleanCode);
+              }
+            })
+            .catch(() => {});
+        }
+
+        // 3. Hidrata os dados cacheados do casal para renderização instantânea do dashboard
+        if (cachedData) {
+          try {
+            const parsed = JSON.parse(cachedData);
+            if (parsed && parsed.partner1 && parsed.partner2) {
+              setCoupleData(parsed);
+            }
+          } catch (_) {}
+        }
+      } catch (err) {
+        console.warn('Erro durante a hidratação inicial do armazenamento local:', err);
+      } finally {
+        if (isMounted) {
+          // Libera a navegação somente após a hidratação estar 100% resolvida
+          setIsAppReady(true);
+        }
+      }
+    };
+
+    hydrateStorage();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // 2.1. Assinatura em tempo real (onSnapshot) do documento compartilhado no Firestore (couples/{coupleCode})
   useEffect(() => {
@@ -147,19 +164,20 @@ export default function App() {
 
     setActiveCoupleCode(coupleId);
 
-    const safetyTimer = setTimeout(() => {
-      setIsLoading(false);
-    }, 2500);
-
     const unsubscribe = subscribeToCoupleDocument(coupleId, (docData) => {
-      clearTimeout(safetyTimer);
       if (docData && docData.coupleData) {
         setCoupleData(docData.coupleData);
         AsyncStorage.setItem(STORAGE_COUPLE_DATA_KEY, JSON.stringify(docData.coupleData)).catch(() => {});
+        if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+          window.localStorage.setItem(STORAGE_COUPLE_DATA_KEY, JSON.stringify(docData.coupleData));
+        }
       } else {
         // Se o documento no Firestore ainda não tiver coupleData mas o aparelho tiver em cache local, sincroniza com a nuvem
         AsyncStorage.getItem(STORAGE_COUPLE_DATA_KEY)
           .then((cached) => {
+            if (!cached && Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+              cached = window.localStorage.getItem(STORAGE_COUPLE_DATA_KEY);
+            }
             if (cached) {
               const parsed = JSON.parse(cached);
               if (parsed && parsed.partner1 && parsed.partner2) {
@@ -170,11 +188,9 @@ export default function App() {
           })
           .catch(() => {});
       }
-      setIsLoading(false);
     });
 
     return () => {
-      clearTimeout(safetyTimer);
       unsubscribe();
     };
   }, [coupleId]);
@@ -214,7 +230,7 @@ export default function App() {
 
   // Executa animação sempre que mudar de estado
   useEffect(() => {
-    if (isLoading || !hasPrivateAccess || isAutoLocked) return;
+    if (!isAppReady || !hasPrivateAccess || isAutoLocked) return;
 
     fadeAnim.setValue(0);
     slideAnim.setValue(12);
@@ -231,60 +247,78 @@ export default function App() {
         useNativeDriver: Platform.OS !== 'web',
       }),
     ]).start();
-  }, [hasPrivateAccess, isAutoLocked, coupleId, coupleData, isEditing, isLoading]);
+  }, [hasPrivateAccess, isAutoLocked, coupleId, coupleData, isEditing, isAppReady]);
 
   // Transição: Desbloqueio bem-sucedido (seja por PIN ou Biometria)
   const handleUnlock = async () => {
     try {
+      if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(STORAGE_PRIVATE_ACCESS_KEY, 'true');
+      }
       await AsyncStorage.setItem(STORAGE_PRIVATE_ACCESS_KEY, 'true');
 
       // Garante a recuperação e atualização imediata do Couple Code logo após o desbloqueio
-      let storedCoupleId = await AsyncStorage.getItem(STORAGE_COUPLE_ID_KEY);
-      if (
-        !storedCoupleId &&
-        Platform.OS === 'web' &&
-        typeof window !== 'undefined' &&
-        window.localStorage
-      ) {
-        storedCoupleId = window.localStorage.getItem(STORAGE_COUPLE_ID_KEY);
-      }
+      let storedCoupleId = coupleId;
+      if (!storedCoupleId) {
+        storedCoupleId = await AsyncStorage.getItem(STORAGE_COUPLE_ID_KEY).catch(() => null);
+        if (
+          !storedCoupleId &&
+          Platform.OS === 'web' &&
+          typeof window !== 'undefined' &&
+          window.localStorage
+        ) {
+          storedCoupleId = window.localStorage.getItem(STORAGE_COUPLE_ID_KEY);
+        }
 
-      if (storedCoupleId && storedCoupleId.trim()) {
-        const cleanCode = storedCoupleId.trim().toUpperCase();
-        setActiveCoupleCode(cleanCode);
-        setCoupleId(cleanCode);
+        if (storedCoupleId && storedCoupleId.trim()) {
+          const cleanCode = storedCoupleId.trim().toUpperCase();
+          setActiveCoupleCode(cleanCode);
+          setCoupleId(cleanCode);
+        }
       }
 
       // Carrega cache local dos dados do casal caso ainda não carregado
-      const cachedData = await AsyncStorage.getItem(STORAGE_COUPLE_DATA_KEY);
-      if (cachedData) {
-        try {
-          const parsed = JSON.parse(cachedData);
-          if (parsed && parsed.partner1 && parsed.partner2) {
-            setCoupleData(parsed);
-          }
-        } catch (_) {}
+      if (!coupleData) {
+        let cachedData = await AsyncStorage.getItem(STORAGE_COUPLE_DATA_KEY).catch(() => null);
+        if (
+          !cachedData &&
+          Platform.OS === 'web' &&
+          typeof window !== 'undefined' &&
+          window.localStorage
+        ) {
+          cachedData = window.localStorage.getItem(STORAGE_COUPLE_DATA_KEY);
+        }
+        if (cachedData) {
+          try {
+            const parsed = JSON.parse(cachedData);
+            if (parsed && parsed.partner1 && parsed.partner2) {
+              setCoupleData(parsed);
+            }
+          } catch (_) {}
+        }
       }
     } catch (err) {
       console.warn('Erro ao restaurar sessão no desbloqueio:', err);
+    } finally {
+      setHasPrivateAccess(true);
+      setIsAutoLocked(false);
     }
-    setHasPrivateAccess(true);
-    setIsAutoLocked(false);
   };
 
   // Pareamento concluído (Gerar ou Inserir código de 5 caracteres)
   const handlePaired = async (code: string, initialData?: CoupleData | null) => {
     const cleanCode = code.trim().toUpperCase();
     try {
-      await AsyncStorage.setItem(STORAGE_COUPLE_ID_KEY, cleanCode);
       if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
         window.localStorage.setItem(STORAGE_COUPLE_ID_KEY, cleanCode);
       }
+      await AsyncStorage.setItem(STORAGE_COUPLE_ID_KEY, cleanCode);
+
       if (initialData) {
-        await AsyncStorage.setItem(STORAGE_COUPLE_DATA_KEY, JSON.stringify(initialData));
         if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
           window.localStorage.setItem(STORAGE_COUPLE_DATA_KEY, JSON.stringify(initialData));
         }
+        await AsyncStorage.setItem(STORAGE_COUPLE_DATA_KEY, JSON.stringify(initialData));
       }
     } catch (err) {
       console.warn('Erro ao persistir sessão do couple code em handlePaired:', err);
@@ -320,12 +354,12 @@ export default function App() {
       }),
     ]).start(async () => {
       try {
-        await AsyncStorage.removeItem(STORAGE_COUPLE_ID_KEY);
-        await AsyncStorage.removeItem(STORAGE_COUPLE_DATA_KEY);
         if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
           window.localStorage.removeItem(STORAGE_COUPLE_ID_KEY);
           window.localStorage.removeItem(STORAGE_COUPLE_DATA_KEY);
         }
+        await AsyncStorage.removeItem(STORAGE_COUPLE_ID_KEY);
+        await AsyncStorage.removeItem(STORAGE_COUPLE_DATA_KEY);
       } catch (err) {
         console.warn('Erro ao desvincular código:', err);
       }
@@ -337,6 +371,9 @@ export default function App() {
   // Bloqueio manual do aplicativo (reexibe a tela de PIN)
   const handleLockApp = async () => {
     try {
+      if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.removeItem(STORAGE_PRIVATE_ACCESS_KEY);
+      }
       await AsyncStorage.removeItem(STORAGE_PRIVATE_ACCESS_KEY);
     } catch (err) {
       console.warn('Erro ao bloquear app:', err);
@@ -420,7 +457,10 @@ export default function App() {
     });
   };
 
-  if (isLoading) {
+  // 0. Bloqueio estrito de carregamento e hidratação global
+  // Bloqueia e NÃO renderiza a árvore de telas (PIN, Onboarding, Pareamento ou Home)
+  // até que a leitura do armazenamento esteja 100% concluída.
+  if (!isAppReady) {
     return (
       <View style={styles.loadingContainer}>
         <ExpoStatusBar style="dark" />

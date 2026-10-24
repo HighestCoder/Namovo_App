@@ -143,11 +143,11 @@ export const PairingView: React.FC<PairingViewProps> = ({ onPaired, initialCode 
     const cleanCode = generatedCode.trim().toUpperCase();
 
     try {
-      // 1. Salva e aguarda no AsyncStorage PRIMEIRO para garantir persistência local imediata
-      await AsyncStorage.setItem(STORAGE_COUPLE_ID_KEY, cleanCode);
+      // 1. Salva sincronamente no window.localStorage na Web e aguarda no AsyncStorage PRIMEIRO
       if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
         window.localStorage.setItem(STORAGE_COUPLE_ID_KEY, cleanCode);
       }
+      await AsyncStorage.setItem(STORAGE_COUPLE_ID_KEY, cleanCode);
 
       // 2. Conecta ao Firestore e carrega dados caso já existentes
       let docData: any = null;
@@ -198,12 +198,11 @@ export const PairingView: React.FC<PairingViewProps> = ({ onPaired, initialCode 
     setIsVerifying(true);
 
     try {
-      // 1. FORÇA A PERSISTÊNCIA: Awaits AsyncStorage.setItem com a chave exata @namovo_couple_id_v1
-      // Isso garante que o código está gravado antes de qualquer verificação de rede, estado ou navegação
-      await AsyncStorage.setItem(STORAGE_COUPLE_ID_KEY, cleanCode);
+      // 1. FORÇA A PERSISTÊNCIA: Salva sincronamente no window.localStorage e aguarda AsyncStorage.setItem
       if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
         window.localStorage.setItem(STORAGE_COUPLE_ID_KEY, cleanCode);
       }
+      await AsyncStorage.setItem(STORAGE_COUPLE_ID_KEY, cleanCode);
 
       // 2. Conecta ao Firestore para verificar o código e obter dados existentes do casal
       let docData: any = null;
