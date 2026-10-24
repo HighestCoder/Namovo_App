@@ -60,7 +60,6 @@ interface HomeViewProps {
   onUnpairCode?: () => void;
   onUpdatePhoto?: (newUrl: string, caption?: string) => void;
   onUpdateCoupleData?: (updated: CoupleData) => void;
-  onLockApp?: () => void;
 }
 
 const COUPLE_MOODS = [
@@ -91,7 +90,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onUnpairCode,
   onUpdatePhoto,
   onUpdateCoupleData,
-  onLockApp,
 }) => {
   const [coupleInfo, setCoupleInfo] = useState<CoupleData>(data);
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
@@ -670,7 +668,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
             onSave={handleSaveSettings}
             onReset={onReset}
             onUnpairCode={onUnpairCode}
-            onLockApp={onLockApp}
           />
 
           {/* Modal do Calendário (Meio Direito 🗓️) */}

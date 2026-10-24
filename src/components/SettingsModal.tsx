@@ -12,10 +12,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   ScrollView,
-  Switch,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as LocalAuthentication from 'expo-local-authentication';
 import {
   Settings2,
   X,
@@ -25,11 +22,8 @@ import {
   Check,
   RotateCcw,
   Sparkles,
-  Lock,
   KeyRound,
   Copy,
-  Fingerprint,
-  ScanFace,
   Music,
   Search,
 } from 'lucide-react-native';
@@ -37,10 +31,8 @@ import * as Clipboard from 'expo-clipboard';
 import { useAudio } from '../context/AudioContext';
 import { COLORS } from '../theme/colors';
 import { CoupleData } from '../types';
-import { STORAGE_BIOMETRICS_KEY } from './LockScreen';
 import {
   triggerLightHaptic,
-  triggerSelectionHaptic,
   triggerSuccessHaptic,
 } from '../utils/haptics';
 import {
@@ -58,7 +50,6 @@ interface SettingsModalProps {
   onSave: (updatedData: CoupleData) => void;
   onReset: () => void;
   onUnpairCode?: () => void;
-  onLockApp?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -69,7 +60,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSave,
   onReset,
   onUnpairCode,
-  onLockApp,
 }) => {
   const [partner1, setPartner1] = useState(coupleData.partner1 || '');
   const [partner2, setPartner2] = useState(coupleData.partner2 || '');
@@ -78,8 +68,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   );
   const [dateError, setDateError] = useState('');
   const [codeCopied, setCodeCopied] = useState(false);
-  const [biometricsEnabled, setBiometricsEnabled] = useState(false);
-  const [biometricName, setBiometricName] = useState('Face ID / Touch ID');
   const { currentSong, openSearchModal } = useAudio();
 
   const handleCopyCoupleCode = async () => {
@@ -122,34 +110,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(300)).current;
 
-  // Sincroniza campos e carrega preferência biométrica quando o modal abre
+  // Sincroniza campos quando o modal abre
   useEffect(() => {
     if (visible) {
       setPartner1(coupleData.partner1 || '');
       setPartner2(coupleData.partner2 || '');
       setDateInput(isoToDisplayDate(coupleData.startDate) || '');
       setDateError('');
-
-      // Carrega estado e suporte da biometria
-      const loadBiometrics = async () => {
-        try {
-          const pref = await AsyncStorage.getItem(STORAGE_BIOMETRICS_KEY);
-          setBiometricsEnabled(pref === 'true');
-
-          if (Platform.OS !== 'web') {
-            const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
-            if (types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
-              setBiometricName('Face ID');
-            } else if (types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) {
-              setBiometricName('Touch ID');
-            }
-          }
-        } catch (err) {
-          console.warn('Erro ao carregar preferência biométrica:', err);
-        }
-      };
-
-      loadBiometrics();
 
       Animated.parallel([
         Animated.timing(fadeAnim, {
@@ -223,41 +190,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     triggerSuccessHaptic();
     onSave(updated);
     handleClose();
-  };
-
-  const handleToggleBiometrics = async (value: boolean) => {
-    triggerSelectionHaptic();
-
-    if (value) {
-      if (Platform.OS !== 'web') {
-        const hasHardware = await LocalAuthentication.hasHardwareAsync();
-        const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-
-        if (!hasHardware || !isEnrolled) {
-          Alert.alert(
-            'Biometria Não Configurada',
-            'Não encontramos Face ID ou biometria cadastrada no dispositivo. Ative nos Ajustes do seu sistema para utilizar este recurso.'
-          );
-          return;
-        }
-
-        const result = await LocalAuthentication.authenticateAsync({
-          promptMessage: 'Confirme para habilitar o acesso por biometria',
-          fallbackLabel: 'Cancelar',
-        });
-
-        if (!result.success) {
-          return;
-        }
-      }
-
-      await AsyncStorage.setItem(STORAGE_BIOMETRICS_KEY, 'true');
-      setBiometricsEnabled(true);
-      triggerSuccessHaptic();
-    } else {
-      await AsyncStorage.setItem(STORAGE_BIOMETRICS_KEY, 'false');
-      setBiometricsEnabled(false);
-    }
   };
 
   const handleConfirmReset = () => {
@@ -443,32 +375,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     ) : null}
                   </View>
 
-                  {/* Card de Acesso por Biometria (Opt-in) */}
-                  <View style={styles.biometricCard}>
-                    <View style={styles.biometricLeft}>
-                      <View style={styles.biometricIconWrapper}>
-                        {biometricName.includes('Face') ? (
-                          <ScanFace size={18} color={COLORS.accent} strokeWidth={2.2} />
-                        ) : (
-                          <Fingerprint size={18} color={COLORS.accent} strokeWidth={2.2} />
-                        )}
-                      </View>
-                      <View style={styles.biometricInfo}>
-                        <Text style={styles.biometricTitle}>Habilitar acesso por Biometria</Text>
-                        <Text style={styles.biometricSubtitle}>
-                          Desbloquear com {biometricName} automaticamente
-                        </Text>
-                      </View>
-                    </View>
-                    <Switch
-                      value={biometricsEnabled}
-                      onValueChange={handleToggleBiometrics}
-                      trackColor={{ false: '#E0D8D0', true: COLORS.accent }}
-                      thumbColor="#FFFFFF"
-                      ios_backgroundColor="#E0D8D0"
-                    />
-                  </View>
-
                   {/* Card de Música do Casal (YouTube) */}
                   <View style={styles.musicCard}>
                     <View style={styles.musicLeft}>
@@ -505,21 +411,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <Check size={18} color="#FFFFFF" strokeWidth={2.4} style={{ marginRight: 8 }} />
                     <Text style={styles.saveButtonText}>Salvar Alterações</Text>
                   </TouchableOpacity>
-
-                  {/* Ação de Bloquear Aplicativo */}
-                  {onLockApp ? (
-                    <TouchableOpacity
-                      onPress={() => {
-                        handleClose();
-                        setTimeout(onLockApp, 250);
-                      }}
-                      activeOpacity={0.75}
-                      style={styles.lockNowButton}
-                    >
-                      <Lock size={15} color={COLORS.accentDark} strokeWidth={2} />
-                      <Text style={styles.lockNowButtonText}>Bloquear Aplicativo Agora (Tela de PIN)</Text>
-                    </TouchableOpacity>
-                  ) : null}
 
                   {/* Ação de Redefinir Dados */}
                   <TouchableOpacity
@@ -695,21 +586,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: 0.2,
   },
-  lockNowButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 10,
-    backgroundColor: COLORS.accentSoft,
-    borderRadius: 14,
-    marginBottom: 10,
-  },
-  lockNowButtonText: {
-    fontSize: 12.5,
-    color: COLORS.accentDark,
-    fontWeight: '600',
-  },
   resetButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -794,46 +670,6 @@ const styles = StyleSheet.create({
     color: '#D9534F',
     fontWeight: '500',
     textDecorationLine: 'underline',
-  },
-  biometricCard: {
-    backgroundColor: '#FAF8F5',
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(198, 139, 89, 0.25)',
-    marginBottom: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  biometricLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    marginRight: 12,
-  },
-  biometricIconWrapper: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: 'rgba(198, 139, 89, 0.12)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 10,
-  },
-  biometricInfo: {
-    flex: 1,
-  },
-  biometricTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: COLORS.textPrimary,
-    marginBottom: 2,
-  },
-  biometricSubtitle: {
-    fontSize: 11.5,
-    color: COLORS.textMuted,
-    lineHeight: 15,
   },
   musicCard: {
     backgroundColor: '#FAF8F5',

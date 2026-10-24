@@ -7,16 +7,12 @@ import {
   ActivityIndicator,
   SafeAreaView,
   Platform,
-  AppState,
-  AppStateStatus,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar as ExpoStatusBar } from 'expo-status-bar';
-import { LockScreen } from './src/components/LockScreen';
 import { PairingView } from './src/components/PairingView';
 import {
   STORAGE_COUPLE_ID_KEY,
-  STORAGE_PRIVATE_ACCESS_KEY,
   STORAGE_COUPLE_DATA_KEY,
 } from './src/constants/storage';
 import { OnboardingView } from './src/components/OnboardingView';
@@ -40,18 +36,12 @@ const DEFAULT_COUPLE_DATA: CoupleData = {
 function MainAppContent() {
   const [coupleData, setCoupleData] = useState<CoupleData | null>(null);
   const [coupleId, setCoupleId] = useState<string | null>(null);
-  const [hasPrivateAccess, setHasPrivateAccess] = useState<boolean>(false);
-  const [isAutoLocked, setIsAutoLocked] = useState<boolean>(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isAppReady, setIsAppReady] = useState<boolean>(false);
 
   // Animações para transição suave entre os dois estados
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(12)).current;
-
-  // Refs para monitoramento de tempo em segundo plano (Auto-Lock 2 minutos)
-  const backgroundTimeRef = useRef<number | null>(null);
-  const appStateRef = useRef<AppStateStatus>((AppState.currentState as AppStateStatus) || 'active');
 
   // 1. Injeção dinâmica de proteção anti-indexação e metadados PWA na Web
   useEffect(() => {
@@ -77,15 +67,14 @@ function MainAppContent() {
   }, []);
 
   // 2. Hidratação estrita e global do armazenamento local (AsyncStorage e window.localStorage)
-  // Bloqueia qualquer renderização de telas (PIN, Pareamento, Home) até que ambos os valores estejam carregados
+  // Bloqueia qualquer renderização de telas até que os valores estejam carregados
   useEffect(() => {
     let isMounted = true;
 
     const hydrateStorage = async () => {
       try {
-        // Leitura simultânea do status do PIN de privacidade, Couple Code e Cache do casal
-        let [storedPrivateAccess, storedCoupleId, cachedData] = await Promise.all([
-          AsyncStorage.getItem(STORAGE_PRIVATE_ACCESS_KEY).catch(() => null),
+        // Leitura simultânea do Couple Code e Cache do casal
+        let [storedCoupleId, cachedData] = await Promise.all([
           AsyncStorage.getItem(STORAGE_COUPLE_ID_KEY).catch(() => null),
           AsyncStorage.getItem(STORAGE_COUPLE_DATA_KEY).catch(() => null),
         ]);
@@ -93,9 +82,6 @@ function MainAppContent() {
         // Fallback e sincronização direta com window.localStorage no ambiente Web / Safari iOS PWA
         if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
           try {
-            if (!storedPrivateAccess) {
-              storedPrivateAccess = window.localStorage.getItem(STORAGE_PRIVATE_ACCESS_KEY);
-            }
             if (!storedCoupleId) {
               storedCoupleId = window.localStorage.getItem(STORAGE_COUPLE_ID_KEY);
             }
@@ -109,14 +95,7 @@ function MainAppContent() {
 
         if (!isMounted) return;
 
-        // 1. Hidrata o status do PIN de privacidade (Acesso Privado 021727)
-        if (storedPrivateAccess === 'true') {
-          setHasPrivateAccess(true);
-        } else {
-          setHasPrivateAccess(false);
-        }
-
-        // 2. Hidrata o código do casal (Couple Code)
+        // 1. Hidrata o código do casal (Couple Code)
         if (storedCoupleId && storedCoupleId.trim()) {
           const cleanCode = storedCoupleId.trim().toUpperCase();
           setActiveCoupleCode(cleanCode);
@@ -133,7 +112,7 @@ function MainAppContent() {
             .catch(() => {});
         }
 
-        // 3. Hidrata os dados cacheados do casal para renderização instantânea do dashboard
+        // 2. Hidrata os dados cacheados do casal para renderização instantânea do dashboard
         if (cachedData) {
           try {
             const parsed = JSON.parse(cachedData);
@@ -196,42 +175,9 @@ function MainAppContent() {
     };
   }, [coupleId]);
 
-  // 3. Monitoramento do ciclo de vida: Bloqueio automático após mais de 2 minutos em segundo plano
-  useEffect(() => {
-    const handleAppStateChange = (nextAppState: AppStateStatus) => {
-      if (
-        appStateRef.current.match(/active/) &&
-        nextAppState.match(/inactive|background/)
-      ) {
-        // Marca o timestamp do momento em que o aplicativo foi minimizado
-        backgroundTimeRef.current = Date.now();
-      } else if (
-        appStateRef.current.match(/inactive|background/) &&
-        nextAppState === 'active'
-      ) {
-        // Aplicativo retornou ao primeiro plano
-        if (backgroundTimeRef.current !== null) {
-          const elapsed = Date.now() - backgroundTimeRef.current;
-          const TWO_MINUTES_MS = 2 * 60 * 1000;
-          if (elapsed >= TWO_MINUTES_MS) {
-            // Mais de 2 minutos em background: ativa auto-lock
-            setIsAutoLocked(true);
-          }
-          backgroundTimeRef.current = null;
-        }
-      }
-      appStateRef.current = nextAppState;
-    };
-
-    const subscription = AppState.addEventListener('change', handleAppStateChange);
-    return () => {
-      subscription.remove();
-    };
-  }, []);
-
   // Executa animação sempre que mudar de estado
   useEffect(() => {
-    if (!isAppReady || !hasPrivateAccess || isAutoLocked) return;
+    if (!isAppReady) return;
 
     fadeAnim.setValue(0);
     slideAnim.setValue(12);
@@ -248,63 +194,7 @@ function MainAppContent() {
         useNativeDriver: Platform.OS !== 'web',
       }),
     ]).start();
-  }, [hasPrivateAccess, isAutoLocked, coupleId, coupleData, isEditing, isAppReady]);
-
-  // Transição: Desbloqueio bem-sucedido (seja por PIN ou Biometria)
-  const handleUnlock = async () => {
-    try {
-      if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.setItem(STORAGE_PRIVATE_ACCESS_KEY, 'true');
-      }
-      await AsyncStorage.setItem(STORAGE_PRIVATE_ACCESS_KEY, 'true');
-
-      // Garante a recuperação e atualização imediata do Couple Code logo após o desbloqueio
-      let storedCoupleId = coupleId;
-      if (!storedCoupleId) {
-        storedCoupleId = await AsyncStorage.getItem(STORAGE_COUPLE_ID_KEY).catch(() => null);
-        if (
-          !storedCoupleId &&
-          Platform.OS === 'web' &&
-          typeof window !== 'undefined' &&
-          window.localStorage
-        ) {
-          storedCoupleId = window.localStorage.getItem(STORAGE_COUPLE_ID_KEY);
-        }
-
-        if (storedCoupleId && storedCoupleId.trim()) {
-          const cleanCode = storedCoupleId.trim().toUpperCase();
-          setActiveCoupleCode(cleanCode);
-          setCoupleId(cleanCode);
-        }
-      }
-
-      // Carrega cache local dos dados do casal caso ainda não carregado
-      if (!coupleData) {
-        let cachedData = await AsyncStorage.getItem(STORAGE_COUPLE_DATA_KEY).catch(() => null);
-        if (
-          !cachedData &&
-          Platform.OS === 'web' &&
-          typeof window !== 'undefined' &&
-          window.localStorage
-        ) {
-          cachedData = window.localStorage.getItem(STORAGE_COUPLE_DATA_KEY);
-        }
-        if (cachedData) {
-          try {
-            const parsed = JSON.parse(cachedData);
-            if (parsed && parsed.partner1 && parsed.partner2) {
-              setCoupleData(parsed);
-            }
-          } catch (_) {}
-        }
-      }
-    } catch (err) {
-      console.warn('Erro ao restaurar sessão no desbloqueio:', err);
-    } finally {
-      setHasPrivateAccess(true);
-      setIsAutoLocked(false);
-    }
-  };
+  }, [coupleId, coupleData, isEditing, isAppReady]);
 
   // Pareamento concluído (Gerar ou Inserir código de 5 caracteres)
   const handlePaired = async (code: string, initialData?: CoupleData | null) => {
@@ -367,20 +257,6 @@ function MainAppContent() {
       setCoupleId(null);
       setCoupleData(null);
     });
-  };
-
-  // Bloqueio manual do aplicativo (reexibe a tela de PIN)
-  const handleLockApp = async () => {
-    try {
-      if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.removeItem(STORAGE_PRIVATE_ACCESS_KEY);
-      }
-      await AsyncStorage.removeItem(STORAGE_PRIVATE_ACCESS_KEY);
-    } catch (err) {
-      console.warn('Erro ao bloquear app:', err);
-    }
-    setIsAutoLocked(true);
-    setHasPrivateAccess(false);
   };
 
   // Transição: Salvar dados no Firestore (documento compartilhado do casal) e ir para a Home
@@ -459,7 +335,7 @@ function MainAppContent() {
   };
 
   // 0. Bloqueio estrito de carregamento e hidratação global
-  // Bloqueia e NÃO renderiza a árvore de telas (PIN, Onboarding, Pareamento ou Home)
+  // Bloqueia e NÃO renderiza a árvore de telas (Onboarding, Pareamento ou Home)
   // até que a leitura do armazenamento esteja 100% concluída.
   if (!isAppReady) {
     return (
@@ -467,17 +343,6 @@ function MainAppContent() {
         <ExpoStatusBar style="dark" />
         <ActivityIndicator size="large" color={COLORS.accent} />
       </View>
-    );
-  }
-
-  // 1. Barreira Obrigatória de Privacidade Inicial e Auto-Lock após 2min em background
-  const shouldShowLockScreen = !hasPrivateAccess || isAutoLocked;
-  if (shouldShowLockScreen) {
-    return (
-      <SafeAreaView style={styles.rootContainer}>
-        <ExpoStatusBar style="dark" />
-        <LockScreen onUnlock={handleUnlock} />
-      </SafeAreaView>
     );
   }
 
@@ -522,7 +387,6 @@ function MainAppContent() {
             onUnpairCode={handleUnpair}
             onUpdatePhoto={handleUpdateFeaturedPhoto}
             onUpdateCoupleData={handleUpdateCoupleData}
-            onLockApp={handleLockApp}
           />
         )}
       </Animated.View>
