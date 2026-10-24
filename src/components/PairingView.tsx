@@ -33,8 +33,12 @@ import {
   triggerSuccessHaptic,
 } from '../utils/haptics';
 
-export const STORAGE_COUPLE_ID_KEY = '@namovo_couple_id_v1';
-export const STORAGE_COUPLE_DATA_KEY = '@namovo_couple_data_v1';
+import {
+  STORAGE_COUPLE_ID_KEY,
+  STORAGE_COUPLE_DATA_KEY,
+} from '../constants/storage';
+
+export { STORAGE_COUPLE_ID_KEY, STORAGE_COUPLE_DATA_KEY };
 
 interface PairingViewProps {
   onPaired: (coupleId: string, initialData?: any) => void;

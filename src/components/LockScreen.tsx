@@ -28,8 +28,12 @@ import {
   triggerErrorHaptic,
 } from '../utils/haptics';
 
-export const STORAGE_PRIVATE_ACCESS_KEY = '@namovo_has_private_access';
-export const STORAGE_BIOMETRICS_KEY = '@namovo_biometrics_enabled_v1';
+import {
+  STORAGE_PRIVATE_ACCESS_KEY,
+  STORAGE_BIOMETRICS_KEY,
+} from '../constants/storage';
+
+export { STORAGE_PRIVATE_ACCESS_KEY, STORAGE_BIOMETRICS_KEY };
 export const REQUIRED_PIN = '021727';
 
 interface LockScreenProps {

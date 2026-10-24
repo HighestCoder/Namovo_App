@@ -12,12 +12,13 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar as ExpoStatusBar } from 'expo-status-bar';
-import { LockScreen, STORAGE_PRIVATE_ACCESS_KEY } from './src/components/LockScreen';
+import { LockScreen } from './src/components/LockScreen';
+import { PairingView } from './src/components/PairingView';
 import {
-  PairingView,
   STORAGE_COUPLE_ID_KEY,
+  STORAGE_PRIVATE_ACCESS_KEY,
   STORAGE_COUPLE_DATA_KEY,
-} from './src/components/PairingView';
+} from './src/constants/storage';
 import { OnboardingView } from './src/components/OnboardingView';
 import { HomeView } from './src/components/HomeView';
 import { CoupleData } from './src/types';
@@ -26,6 +27,7 @@ import {
   setActiveCoupleCode,
   subscribeToCoupleDocument,
   saveCoupleDataToFirestore,
+  validateCoupleCodeInFirestore,
 } from './src/services/firebase';
 
 const DEFAULT_COUPLE_DATA: CoupleData = {
@@ -97,10 +99,29 @@ export default function App() {
         const cleanCode = storedCoupleId.trim().toUpperCase();
         setActiveCoupleCode(cleanCode);
         setCoupleId(cleanCode);
+
+        // Validação no boot: verifica se o documento existe no Firestore.
+        // Aceita TANTO criador quanto participante (joiner). Nunca apaga dados locais do joiner.
+        validateCoupleCodeInFirestore(cleanCode)
+          .then((exists) => {
+            if (exists) {
+              setCoupleId(cleanCode);
+              setActiveCoupleCode(cleanCode);
+            }
+          })
+          .catch(() => {});
       }
 
       // 3. Carrega cache local dos dados do casal para renderização instantânea do dashboard
-      const cachedData = await AsyncStorage.getItem(STORAGE_COUPLE_DATA_KEY);
+      let cachedData = await AsyncStorage.getItem(STORAGE_COUPLE_DATA_KEY);
+      if (
+        !cachedData &&
+        Platform.OS === 'web' &&
+        typeof window !== 'undefined' &&
+        window.localStorage
+      ) {
+        cachedData = window.localStorage.getItem(STORAGE_COUPLE_DATA_KEY);
+      }
       if (cachedData) {
         try {
           const parsed = JSON.parse(cachedData);

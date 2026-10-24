@@ -198,6 +198,25 @@ export const initializeOrJoinCoupleSpace = async (
 };
 
 /**
+ * Validação no ciclo de boot: verifica se o documento do casal existe no Firestore pelo ID.
+ * Aceita e valida igualmente o criador e o participante (joiner).
+ */
+export const validateCoupleCodeInFirestore = async (
+  rawCode: string
+): Promise<boolean> => {
+  try {
+    const code = rawCode.trim().toUpperCase();
+    const coupleRef = doc(db, 'couples', code);
+    const snap = await getDoc(coupleRef);
+    return snap.exists();
+  } catch (err) {
+    console.warn('Aviso ao validar coupleCode no Firestore:', err);
+    // Em caso de offline ou erro temporário de rede, mantém a sessão ativa (sem limpar dados)
+    return true;
+  }
+};
+
+/**
  * Escuta em tempo real (onSnapshot) o documento completo do casal `couples/{coupleCode}`
  */
 export const subscribeToCoupleDocument = (
