@@ -30,8 +30,11 @@ import {
   Copy,
   Fingerprint,
   ScanFace,
+  Music,
+  Upload,
 } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
+import { useAudio } from '../context/AudioContext';
 import { COLORS } from '../theme/colors';
 import { CoupleData } from '../types';
 import { STORAGE_BIOMETRICS_KEY } from './LockScreen';
@@ -77,6 +80,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [codeCopied, setCodeCopied] = useState(false);
   const [biometricsEnabled, setBiometricsEnabled] = useState(false);
   const [biometricName, setBiometricName] = useState('Face ID / Touch ID');
+  const { songTitle, uploadSong, resetToDefault } = useAudio();
 
   const handleCopyCoupleCode = async () => {
     if (!coupleCode) return;
@@ -465,6 +469,40 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     />
                   </View>
 
+                  {/* Card de Música do Casal */}
+                  <View style={styles.musicCard}>
+                    <View style={styles.musicLeft}>
+                      <View style={styles.musicIconWrapper}>
+                        <Music size={18} color={COLORS.accent} strokeWidth={2.2} />
+                      </View>
+                      <View style={styles.musicInfo}>
+                        <Text style={styles.musicTitle}>Música do Casal</Text>
+                        <Text style={styles.musicSubtitle} numberOfLines={1}>
+                          {songTitle || 'Nossa Música'}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.musicActionsRow}>
+                      <TouchableOpacity
+                        onPress={uploadSong}
+                        activeOpacity={0.75}
+                        style={styles.musicActionBtn}
+                        accessibilityLabel="Trocar música do casal"
+                      >
+                        <Upload size={12} color={COLORS.accentDark} strokeWidth={2} style={{ marginRight: 4 }} />
+                        <Text style={styles.musicActionText}>Trocar</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={resetToDefault}
+                        activeOpacity={0.75}
+                        style={styles.musicResetBtn}
+                        accessibilityLabel="Restaurar música padrão"
+                      >
+                        <RotateCcw size={13} color={COLORS.textSecondary} strokeWidth={2} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
                   {/* Botão de Salvar Alterações */}
                   <TouchableOpacity
                     onPress={handleSave}
@@ -803,5 +841,73 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     color: COLORS.textMuted,
     lineHeight: 15,
+  },
+  musicCard: {
+    backgroundColor: '#FAF8F5',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(198, 139, 89, 0.25)',
+    marginBottom: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  musicLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 10,
+  },
+  musicIconWrapper: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: 'rgba(198, 139, 89, 0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  musicInfo: {
+    flex: 1,
+  },
+  musicTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+    marginBottom: 2,
+  },
+  musicSubtitle: {
+    fontSize: 11.5,
+    color: COLORS.textMuted,
+    lineHeight: 15,
+  },
+  musicActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  musicActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(198, 139, 89, 0.15)',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+  },
+  musicActionText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: COLORS.accentDark,
+  },
+  musicResetBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.08)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

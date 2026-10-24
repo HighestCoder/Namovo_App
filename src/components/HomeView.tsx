@@ -50,6 +50,7 @@ import { SettingsModal } from './SettingsModal';
 import { CalendarModal } from './CalendarModal';
 import { GiftsModal } from './GiftsModal';
 import { CartasModal } from './CartasModal';
+import { MusicPlayerPill } from './MusicPlayerPill';
 
 interface HomeViewProps {
   data: CoupleData;
@@ -414,17 +415,24 @@ export const HomeView: React.FC<HomeViewProps> = ({
           </View>
 
           {/* ============================================================== */}
-          {/* TOPO: Nomes do Casal, Data & Pílula de Sintonia Interativa     */}
+          {/* TOPO: Nomes do Casal, Data & Widget Mini-Player de Música      */}
           {/* ============================================================== */}
           <View style={styles.topSection}>
             <View style={styles.monogramRow}>
               <View style={styles.monogramLine} />
-              <Sparkles
-                size={12}
-                color={COLORS.accent}
-                strokeWidth={2}
-                style={{ marginHorizontal: 8 }}
-              />
+              <Animated.View style={{ transform: [{ scale: moodScaleAnim }] }}>
+                <TouchableOpacity
+                  onPress={handleCycleMood}
+                  activeOpacity={0.7}
+                  style={{ flexDirection: 'row', alignItems: 'center', marginHorizontal: 8 }}
+                  accessibilityLabel={`Sintonia do casal: ${currentMood.label}. Toque para alternar.`}
+                >
+                  <Text style={{ fontSize: 11, marginRight: 4 }}>{currentMood.emoji}</Text>
+                  <Text style={{ fontSize: 9.5, color: COLORS.accent, fontWeight: '600', letterSpacing: 0.6 }}>
+                    {currentMood.label.toUpperCase()}
+                  </Text>
+                </TouchableOpacity>
+              </Animated.View>
               <View style={styles.monogramLine} />
             </View>
 
@@ -438,19 +446,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
               Juntos desde {formatElegantDate(coupleInfo.startDate)}
             </Text>
 
-            {/* Pílula Interativa de Sintonia / Humor do Casal */}
-            <Animated.View style={{ transform: [{ scale: moodScaleAnim }] }}>
-              <TouchableOpacity
-                onPress={handleCycleMood}
-                activeOpacity={0.8}
-                style={styles.moodPill}
-                accessibilityRole="button"
-                accessibilityLabel="Alternar sintonia atual do casal"
-              >
-                <Text style={styles.moodEmoji}>{currentMood.emoji}</Text>
-                <Text style={styles.moodText}>{currentMood.label}</Text>
-              </TouchableOpacity>
-            </Animated.View>
+            {/* Widget Mini Player de Música Interativo (Acima da Foto Central) */}
+            <MusicPlayerPill />
           </View>
 
           {/* ============================================================== */}

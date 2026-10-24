@@ -23,6 +23,7 @@ import { OnboardingView } from './src/components/OnboardingView';
 import { HomeView } from './src/components/HomeView';
 import { CoupleData } from './src/types';
 import { COLORS } from './src/theme/colors';
+import { AudioProvider } from './src/context/AudioContext';
 import {
   setActiveCoupleCode,
   subscribeToCoupleDocument,
@@ -36,7 +37,7 @@ const DEFAULT_COUPLE_DATA: CoupleData = {
   startDate: new Date().toISOString().split('T')[0],
 };
 
-export default function App() {
+function MainAppContent() {
   const [coupleData, setCoupleData] = useState<CoupleData | null>(null);
   const [coupleId, setCoupleId] = useState<string | null>(null);
   const [hasPrivateAccess, setHasPrivateAccess] = useState<boolean>(false);
@@ -526,6 +527,14 @@ export default function App() {
         )}
       </Animated.View>
     </SafeAreaView>
+  );
+}
+
+export default function App() {
+  return (
+    <AudioProvider>
+      <MainAppContent />
+    </AudioProvider>
   );
 }
 
