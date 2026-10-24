@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "Namovo — Nosso Espaço",
+    "slug": "Namovo_App",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "Permitir o uso de Face ID para desbloquear o seu aplicativo com segurança."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "output": "single",
+      "display": "standalone",
+      "name": "Namovo — Nosso Espaço",
+      "shortName": "Namovo",
+      "backgroundColor": "#FDFBFB",
+      "themeColor": "#FDFBFB"
+    }
+  }
+}
