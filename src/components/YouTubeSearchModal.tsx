@@ -13,7 +13,6 @@ import {
   Platform,
   ActivityIndicator,
   KeyboardAvoidingView,
-  SafeAreaView,
 } from 'react-native';
 import {
   Search,
@@ -21,17 +20,20 @@ import {
   Play,
   Music2,
   Sparkles,
-  ExternalLink,
-  Flame,
+  AlertCircle,
+  RefreshCw,
 } from 'lucide-react-native';
 import { COLORS } from '../theme/colors';
 import {
   searchYouTubeVideos,
   YouTubeSearchResult,
-  CURATED_ROMANTIC_TRACKS,
 } from '../services/youtube';
 import { useAudio } from '../context/AudioContext';
-import { triggerLightHaptic, triggerSelectionHaptic, triggerSuccessHaptic } from '../utils/haptics';
+import {
+  triggerLightHaptic,
+  triggerSuccessHaptic,
+  triggerErrorHaptic,
+} from '../utils/haptics';
 
 interface YouTubeSearchModalProps {
   visible: boolean;
@@ -43,18 +45,22 @@ export const YouTubeSearchModal: React.FC<YouTubeSearchModalProps> = ({
   onClose,
 }) => {
   const { currentSong, selectSong } = useAudio();
-  const [searchQuery, setSearchQuery] = useState('');
-  const [results, setResults] = useState<YouTubeSearchResult[]>(CURATED_ROMANTIC_TRACKS);
-  const [isSearching, setIsSearching] = useState(false);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [searchResults, setSearchResults] = useState<YouTubeSearchResult[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(50)).current;
-  const searchTimeoutRef = useRef<any>(null);
+  const debounceRef = useRef<any>(null);
 
   useEffect(() => {
     if (visible) {
       setSearchQuery('');
-      setResults(CURATED_ROMANTIC_TRACKS);
+      setSearchResults([]);
+      setIsLoading(false);
+      setError(null);
+
       Animated.parallel([
         Animated.timing(fadeAnim, {
           toValue: 1,
@@ -71,36 +77,80 @@ export const YouTubeSearchModal: React.FC<YouTubeSearchModalProps> = ({
     } else {
       fadeAnim.setValue(0);
       slideAnim.setValue(50);
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
     }
   }, [visible, fadeAnim, slideAnim]);
 
-  const handleSearch = (text: string) => {
-    setSearchQuery(text);
-    if (searchTimeoutRef.current) {
-      clearTimeout(searchTimeoutRef.current);
-    }
-
-    if (!text.trim()) {
-      setResults(CURATED_ROMANTIC_TRACKS);
-      setIsSearching(false);
+  const executeSearch = async (queryText: string) => {
+    const trimmed = queryText.trim();
+    if (!trimmed) {
+      setSearchResults([]);
+      setIsLoading(false);
+      setError(null);
       return;
     }
 
-    setIsSearching(true);
-    searchTimeoutRef.current = setTimeout(async () => {
-      try {
-        const searchRes = await searchYouTubeVideos(text);
-        setResults(searchRes);
-      } catch (err) {
-        console.warn('Erro ao pesquisar vídeos:', err);
-      } finally {
-        setIsSearching(false);
-      }
-    }, 450);
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const results = await searchYouTubeVideos(trimmed);
+      setSearchResults(results);
+    } catch (err: any) {
+      console.warn('Erro ao buscar vídeos no YouTube:', err);
+      triggerErrorHaptic();
+      setError(
+        err?.message ||
+          'Não foi possível consultar a YouTube API. Verifique a sua conexão e a chave de API.'
+      );
+      setSearchResults([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleQueryChange = (text: string) => {
+    setSearchQuery(text);
+
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+
+    if (!text.trim()) {
+      setSearchResults([]);
+      setIsLoading(false);
+      setError(null);
+      return;
+    }
+
+    // Busca dinâmica com debounce para digitação fluida
+    debounceRef.current = setTimeout(() => {
+      executeSearch(text);
+    }, 550);
+  };
+
+  const handleSubmit = () => {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+    executeSearch(searchQuery);
+  };
+
+  const handleClear = () => {
+    setSearchQuery('');
+    setSearchResults([]);
+    setIsLoading(false);
+    setError(null);
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
   };
 
   const handleSelectSong = async (item: YouTubeSearchResult) => {
     triggerSuccessHaptic();
+    // Extrai o videoId (id.videoId da API mapeado), salva no Firestore e dispara reprodução
     await selectSong({
       videoId: item.videoId,
       title: item.title,
@@ -199,7 +249,7 @@ export const YouTubeSearchModal: React.FC<YouTubeSearchModalProps> = ({
                     <View>
                       <Text style={styles.headerTitle}>Música do Casal</Text>
                       <Text style={styles.headerSubtitle}>
-                        Buscar no YouTube ou colar link
+                        Busca dinâmica na YouTube Data API
                       </Text>
                     </View>
                   </View>
@@ -217,47 +267,97 @@ export const YouTubeSearchModal: React.FC<YouTubeSearchModalProps> = ({
                 <View style={styles.searchBarContainer}>
                   <Search size={16} color={COLORS.accent} style={styles.searchIcon} />
                   <TextInput
-                    style={styles.searchInput}
-                    placeholder="Ex: Ed Sheeran, Coldplay, Alok ou link..."
+                    style={[
+                      styles.searchInput,
+                      Platform.OS === 'web' && ({ outlineStyle: 'none', outlineWidth: 0 } as any),
+                    ]}
+                    placeholder="Nome da música, artista ou link do YouTube..."
                     placeholderTextColor={COLORS.textMuted}
                     value={searchQuery}
-                    onChangeText={handleSearch}
+                    onChangeText={handleQueryChange}
+                    onSubmitEditing={handleSubmit}
                     autoCapitalize="none"
                     autoCorrect={false}
                     returnKeyType="search"
                   />
                   {searchQuery.length > 0 && (
                     <TouchableOpacity
-                      onPress={() => handleSearch('')}
+                      onPress={handleClear}
                       style={styles.clearSearchBtn}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     >
                       <X size={14} color={COLORS.textSecondary} />
                     </TouchableOpacity>
                   )}
-                  {isSearching && (
-                    <ActivityIndicator size="small" color={COLORS.accent} style={{ marginLeft: 6 }} />
-                  )}
+                  <TouchableOpacity
+                    onPress={handleSubmit}
+                    style={styles.searchSubmitBtn}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={styles.searchSubmitBtnText}>Buscar</Text>
+                  </TouchableOpacity>
                 </View>
 
-                {/* Título de Seção */}
-                <View style={styles.sectionHeader}>
-                  <Flame size={13} color={COLORS.accent} style={{ marginRight: 5 }} />
-                  <Text style={styles.sectionTitle}>
-                    {searchQuery.trim()
-                      ? `Resultados para "${searchQuery}"`
-                      : 'Sugestões Românticas Especiais'}
-                  </Text>
-                </View>
+                {/* Indicador de Carregamento */}
+                {isLoading && (
+                  <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="small" color={COLORS.accent} />
+                    <Text style={styles.loadingText}>Buscando músicas no YouTube...</Text>
+                  </View>
+                )}
 
-                {/* Lista de Músicas */}
-                <FlatList
-                  data={results}
-                  keyExtractor={(item, index) => `${item.videoId}_${index}`}
-                  renderItem={renderItem}
-                  contentContainerStyle={styles.listContent}
-                  showsVerticalScrollIndicator={false}
-                  keyboardShouldPersistTaps="handled"
-                />
+                {/* Exibição de Erro */}
+                {error && !isLoading && (
+                  <View style={styles.errorContainer}>
+                    <AlertCircle size={18} color="#D9534F" style={{ marginRight: 8, flexShrink: 0 }} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.errorTitle}>Erro na busca do YouTube</Text>
+                      <Text style={styles.errorSubtitle}>{error}</Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={handleSubmit}
+                      style={styles.retryBtn}
+                      activeOpacity={0.75}
+                    >
+                      <RefreshCw size={13} color={COLORS.accentDark} />
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {/* Estado Inicial (Nenhuma busca feita) */}
+                {!isLoading && !error && searchResults.length === 0 && !searchQuery.trim() && (
+                  <View style={styles.emptyContainer}>
+                    <View style={styles.emptyIconCircle}>
+                      <Music2 size={24} color={COLORS.accent} strokeWidth={1.8} />
+                    </View>
+                    <Text style={styles.emptyTitle}>Escolha a Trilha Sonora do Casal</Text>
+                    <Text style={styles.emptySubtitle}>
+                      Digite o nome de uma música, artista ou cole um link do YouTube para buscar em tempo real.
+                    </Text>
+                  </View>
+                )}
+
+                {/* Estado Sem Resultados */}
+                {!isLoading && !error && searchResults.length === 0 && searchQuery.trim().length > 0 && (
+                  <View style={styles.emptyContainer}>
+                    <Text style={styles.emptyTitle}>Nenhum resultado encontrado</Text>
+                    <Text style={styles.emptySubtitle}>
+                      Tente buscar com outras palavras ou cole o link direto do vídeo do YouTube.
+                    </Text>
+                  </View>
+                )}
+
+                {/* Lista Dinâmica de Resultados */}
+                {!isLoading && searchResults.length > 0 && (
+                  <FlatList
+                    data={searchResults}
+                    keyExtractor={(item) => item.videoId}
+                    renderItem={renderItem}
+                    contentContainerStyle={styles.listContent}
+                    showsVerticalScrollIndicator={false}
+                    keyboardShouldPersistTaps="handled"
+                  />
+                )}
               </Animated.View>
             </TouchableWithoutFeedback>
           </KeyboardAvoidingView>
@@ -339,7 +439,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 14,
     paddingHorizontal: 12,
-    height: 44,
+    height: 46,
     borderWidth: 1,
     borderColor: 'rgba(198, 139, 89, 0.25)',
     shadowColor: COLORS.shadow,
@@ -360,19 +460,86 @@ const styles = StyleSheet.create({
   },
   clearSearchBtn: {
     padding: 4,
+    marginRight: 4,
   },
-  sectionHeader: {
+  searchSubmitBtn: {
+    backgroundColor: COLORS.accent,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+  },
+  searchSubmitBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  loadingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 4,
-    marginBottom: 8,
+    justifyContent: 'center',
+    paddingVertical: 24,
+    gap: 8,
   },
-  sectionTitle: {
-    fontSize: 11.5,
-    fontWeight: '700',
+  loadingText: {
+    fontSize: 13,
     color: COLORS.accentDark,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
+    fontWeight: '500',
+  },
+  errorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+  },
+  errorTitle: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#991B1B',
+    marginBottom: 2,
+  },
+  errorSubtitle: {
+    fontSize: 11.5,
+    color: '#B91C1C',
+    lineHeight: 15,
+  },
+  retryBtn: {
+    padding: 6,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    marginLeft: 8,
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+    paddingHorizontal: 20,
+  },
+  emptyIconCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: 'rgba(198, 139, 89, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  emptyTitle: {
+    fontSize: 14.5,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  emptySubtitle: {
+    fontSize: 12,
+    color: COLORS.textMuted,
+    textAlign: 'center',
+    lineHeight: 18,
+    maxWidth: 290,
   },
   listContent: {
     paddingBottom: 16,
