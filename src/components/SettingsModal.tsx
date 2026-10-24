@@ -325,8 +325,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </View>
 
                 <ScrollView
+                  style={{ flex: 1 }}
+                  contentContainerStyle={{ paddingBottom: 50 }}
                   showsVerticalScrollIndicator={false}
-                  contentContainerStyle={{ paddingBottom: 120 }}
                   keyboardShouldPersistTaps="handled"
                 >
                   {/* Campo: Seu Nome */}
@@ -516,6 +517,8 @@ const styles = StyleSheet.create({
   },
   keyboardAvoid: {
     width: '100%',
+    flex: 1,
+    justifyContent: 'flex-end',
   },
   modalCard: {
     backgroundColor: '#FFFFFF',
@@ -523,7 +526,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 28,
     paddingTop: 12,
     paddingHorizontal: 24,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 28,
+    paddingBottom: Platform.OS === 'ios' ? 28 : 20,
     borderWidth: 1,
     borderColor: 'rgba(234, 230, 225, 0.7)',
     shadowColor: '#000',
@@ -531,7 +534,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.12,
     shadowRadius: 16,
     elevation: 20,
-    maxHeight: '90%',
+    height: '92%',
+    maxHeight: '92%',
+    flex: 1,
   },
   grabber: {
     width: 38,

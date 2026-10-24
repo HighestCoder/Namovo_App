@@ -139,27 +139,37 @@ export const PairingView: React.FC<PairingViewProps> = ({ onPaired, initialCode 
     const cleanCode = generatedCode.trim().toUpperCase();
 
     try {
-      // 1. Verifica / inicializa o documento compartilhado no Firestore
-      const docData = await initializeOrJoinCoupleSpace(cleanCode);
-
-      // 2. Salva e aguarda no AsyncStorage ANTES de atualizar o estado e navegar para o dashboard
+      // 1. Salva e aguarda no AsyncStorage PRIMEIRO para garantir persistência local imediata
       await AsyncStorage.setItem(STORAGE_COUPLE_ID_KEY, cleanCode);
       if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
         window.localStorage.setItem(STORAGE_COUPLE_ID_KEY, cleanCode);
       }
 
-      if (docData && docData.coupleData) {
-        await AsyncStorage.setItem(STORAGE_COUPLE_DATA_KEY, JSON.stringify(docData.coupleData));
-        if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
-          window.localStorage.setItem(STORAGE_COUPLE_DATA_KEY, JSON.stringify(docData.coupleData));
+      // 2. Conecta ao Firestore e carrega dados caso já existentes
+      let docData: any = null;
+      try {
+        docData = await initializeOrJoinCoupleSpace(cleanCode);
+        if (docData && docData.coupleData) {
+          await AsyncStorage.setItem(STORAGE_COUPLE_DATA_KEY, JSON.stringify(docData.coupleData));
+          if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+            window.localStorage.setItem(STORAGE_COUPLE_DATA_KEY, JSON.stringify(docData.coupleData));
+          }
         }
+      } catch (firestoreErr) {
+        console.warn('Aviso ao sincronizar espaço do casal no Firestore:', firestoreErr);
+      }
+
+      // 3. Garante novamente que o código está gravado com sucesso no AsyncStorage
+      await AsyncStorage.setItem(STORAGE_COUPLE_ID_KEY, cleanCode);
+      if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(STORAGE_COUPLE_ID_KEY, cleanCode);
       }
 
       await triggerPairingSuccessNotification(cleanCode);
       setIsVerifying(false);
       onPaired(cleanCode, docData?.coupleData);
     } catch (err) {
-      console.warn('Erro ao vincular coupleId no Firestore:', err);
+      console.warn('Erro ao salvar STORAGE_COUPLE_ID_KEY localmente:', err);
       try {
         await AsyncStorage.setItem(STORAGE_COUPLE_ID_KEY, cleanCode);
         if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
@@ -184,27 +194,40 @@ export const PairingView: React.FC<PairingViewProps> = ({ onPaired, initialCode 
     setIsVerifying(true);
 
     try {
-      // 1. Verifica o código no Firestore e obtém os dados existentes do casal
-      const docData = await initializeOrJoinCoupleSpace(cleanCode);
-
-      // 2. Salva e aguarda STORAGE_COUPLE_ID_KEY no AsyncStorage ANTES de atualizar o estado e navegar
+      // 1. FORÇA A PERSISTÊNCIA: Awaits AsyncStorage.setItem com a chave exata @namovo_couple_id_v1
+      // Isso garante que o código está gravado antes de qualquer verificação de rede, estado ou navegação
       await AsyncStorage.setItem(STORAGE_COUPLE_ID_KEY, cleanCode);
       if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
         window.localStorage.setItem(STORAGE_COUPLE_ID_KEY, cleanCode);
       }
 
-      if (docData && docData.coupleData) {
-        await AsyncStorage.setItem(STORAGE_COUPLE_DATA_KEY, JSON.stringify(docData.coupleData));
-        if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
-          window.localStorage.setItem(STORAGE_COUPLE_DATA_KEY, JSON.stringify(docData.coupleData));
+      // 2. Conecta ao Firestore para verificar o código e obter dados existentes do casal
+      let docData: any = null;
+      try {
+        docData = await initializeOrJoinCoupleSpace(cleanCode);
+        if (docData && docData.coupleData) {
+          await AsyncStorage.setItem(STORAGE_COUPLE_DATA_KEY, JSON.stringify(docData.coupleData));
+          if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+            window.localStorage.setItem(STORAGE_COUPLE_DATA_KEY, JSON.stringify(docData.coupleData));
+          }
         }
+      } catch (firestoreErr) {
+        console.warn('Aviso ao sincronizar espaço do casal no Firestore no join:', firestoreErr);
+      }
+
+      // 3. Reconfirma a persistência com await bem-sucedido para garantir que nada foi perdido
+      await AsyncStorage.setItem(STORAGE_COUPLE_ID_KEY, cleanCode);
+      if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(STORAGE_COUPLE_ID_KEY, cleanCode);
       }
 
       await triggerPairingSuccessNotification(cleanCode);
       setIsVerifying(false);
+
+      // 4. Somente após a persistência concluída com sucesso no armazenamento local, chama onPaired
       onPaired(cleanCode, docData?.coupleData);
     } catch (err) {
-      console.warn('Erro ao vincular coupleId no Firestore:', err);
+      console.warn('Erro na persistência do código de pareamento no join:', err);
       try {
         await AsyncStorage.setItem(STORAGE_COUPLE_ID_KEY, cleanCode);
         if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
