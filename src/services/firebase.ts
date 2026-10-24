@@ -24,6 +24,14 @@ export interface ChatMessage {
   createdAt: number;
 }
 
+export interface YouTubeSongInfo {
+  videoId: string;
+  title: string;
+  channelTitle?: string;
+  thumbnailUrl?: string;
+  updatedAt?: number;
+}
+
 export interface SharedCoupleDocument {
   coupleCode: string;
   coupleData?: CoupleData | null;
@@ -35,6 +43,7 @@ export interface SharedCoupleDocument {
   memories?: CoupleMemory[];
   moodIndex?: number;
   loveTaps?: number;
+  youtubeSong?: YouTubeSongInfo | null;
   updatedAt?: number;
   createdAt?: number;
 }
@@ -568,6 +577,26 @@ export const saveMemoriesToFirestore = async (
       memories: sanitizeForFirestore(memories),
       updatedAt: Date.now(),
     },
+    { merge: true }
+  );
+};
+
+/**
+ * Salva e sincroniza a música compartilhada do casal (YouTube) no documento Firestore
+ */
+export const saveYouTubeSongToFirestore = async (
+  songInfo: YouTubeSongInfo,
+  coupleCode?: string
+): Promise<void> => {
+  const code = (coupleCode || getActiveCoupleCode()).trim().toUpperCase();
+  if (!code) return;
+  const coupleRef = doc(db, 'couples', code);
+  await setDoc(
+    coupleRef,
+    sanitizeForFirestore({
+      youtubeSong: songInfo,
+      updatedAt: Date.now(),
+    }),
     { merge: true }
   );
 };

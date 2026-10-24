@@ -31,7 +31,7 @@ import {
   Fingerprint,
   ScanFace,
   Music,
-  Upload,
+  Search,
 } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useAudio } from '../context/AudioContext';
@@ -80,7 +80,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [codeCopied, setCodeCopied] = useState(false);
   const [biometricsEnabled, setBiometricsEnabled] = useState(false);
   const [biometricName, setBiometricName] = useState('Face ID / Touch ID');
-  const { songTitle, uploadSong, resetToDefault } = useAudio();
+  const { currentSong, openSearchModal } = useAudio();
 
   const handleCopyCoupleCode = async () => {
     if (!coupleCode) return;
@@ -469,7 +469,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     />
                   </View>
 
-                  {/* Card de Música do Casal */}
+                  {/* Card de Música do Casal (YouTube) */}
                   <View style={styles.musicCard}>
                     <View style={styles.musicLeft}>
                       <View style={styles.musicIconWrapper}>
@@ -478,29 +478,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <View style={styles.musicInfo}>
                         <Text style={styles.musicTitle}>Música do Casal</Text>
                         <Text style={styles.musicSubtitle} numberOfLines={1}>
-                          {songTitle || 'Nossa Música'}
+                          {currentSong?.title || 'Nossa Música'}
                         </Text>
                       </View>
                     </View>
-                    <View style={styles.musicActionsRow}>
-                      <TouchableOpacity
-                        onPress={uploadSong}
-                        activeOpacity={0.75}
-                        style={styles.musicActionBtn}
-                        accessibilityLabel="Trocar música do casal"
-                      >
-                        <Upload size={12} color={COLORS.accentDark} strokeWidth={2} style={{ marginRight: 4 }} />
-                        <Text style={styles.musicActionText}>Trocar</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={resetToDefault}
-                        activeOpacity={0.75}
-                        style={styles.musicResetBtn}
-                        accessibilityLabel="Restaurar música padrão"
-                      >
-                        <RotateCcw size={13} color={COLORS.textSecondary} strokeWidth={2} />
-                      </TouchableOpacity>
-                    </View>
+                    <TouchableOpacity
+                      onPress={() => {
+                        handleClose();
+                        setTimeout(openSearchModal, 220);
+                      }}
+                      activeOpacity={0.75}
+                      style={styles.musicActionBtn}
+                      accessibilityLabel="Buscar e trocar música no YouTube"
+                    >
+                      <Search size={12} color={COLORS.accentDark} strokeWidth={2.2} style={{ marginRight: 4 }} />
+                      <Text style={styles.musicActionText}>Buscar</Text>
+                    </TouchableOpacity>
                   </View>
 
                   {/* Botão de Salvar Alterações */}

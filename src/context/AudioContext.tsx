@@ -1,385 +1,227 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
-import { Platform } from 'react-native';
+import { Platform, View, StyleSheet } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system/legacy';
-import { Audio } from 'expo-av';
+import ReactPlayer from 'react-player';
 import {
-  STORAGE_MUSIC_URI_KEY,
-  STORAGE_MUSIC_TITLE_KEY,
-} from '../constants/storage';
-import {
-  DEFAULT_MUSIC_TITLE,
-  getDefaultMusicUri,
-} from '../constants/defaultMusic';
-import { saveMediaToIndexedDB, getMediaFromIndexedDB } from '../utils/webIndexedDB';
-import { triggerLightHaptic, triggerSuccessHaptic, triggerErrorHaptic } from '../utils/haptics';
+  YouTubeSongInfo,
+  saveYouTubeSongToFirestore,
+  subscribeToCoupleDocument,
+  getActiveCoupleCode,
+} from '../services/firebase';
+import { YouTubeSearchModal } from '../components/YouTubeSearchModal';
+import { triggerLightHaptic, triggerSuccessHaptic } from '../utils/haptics';
+
+export const STORAGE_YOUTUBE_SONG_KEY = '@namovo_youtube_song_v1';
+
+export const DEFAULT_YOUTUBE_SONG: YouTubeSongInfo = {
+  videoId: '2Vv-BfVoq4g',
+  title: 'Ed Sheeran - Perfect',
+  channelTitle: 'Ed Sheeran',
+  thumbnailUrl: 'https://img.youtube.com/vi/2Vv-BfVoq4g/hqdefault.jpg',
+};
 
 interface AudioContextType {
   isPlaying: boolean;
-  songTitle: string;
-  songUri: string | null;
   isLoading: boolean;
-  togglePlay: () => Promise<void>;
-  play: () => Promise<void>;
-  pause: () => Promise<void>;
-  uploadSong: () => Promise<boolean>;
-  resetToDefault: () => Promise<void>;
+  currentSong: YouTubeSongInfo;
+  searchModalVisible: boolean;
+  togglePlay: () => void;
+  play: () => void;
+  pause: () => void;
+  selectSong: (song: YouTubeSongInfo) => Promise<void>;
+  openSearchModal: () => void;
+  closeSearchModal: () => void;
 }
 
 const AudioContext = createContext<AudioContextType | null>(null);
 
 export const AudioProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [songTitle, setSongTitle] = useState<string>(DEFAULT_MUSIC_TITLE);
-  const [songUri, setSongUri] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [currentSong, setCurrentSong] = useState<YouTubeSongInfo>(DEFAULT_YOUTUBE_SONG);
+  const [searchModalVisible, setSearchModalVisible] = useState<boolean>(false);
+  const coupleCode = getActiveCoupleCode();
 
-  // Instância de áudio nativo (HTMLAudioElement na Web ou Audio.Sound no Nativo)
-  const webAudioRef = useRef<HTMLAudioElement | null>(null);
-  const nativeSoundRef = useRef<Audio.Sound | null>(null);
-
-  // Limpa instâncias de áudio ao desmontar
-  const cleanupAudioInstance = useCallback(async () => {
-    if (Platform.OS === 'web') {
-      if (webAudioRef.current) {
-        webAudioRef.current.pause();
-        webAudioRef.current.src = '';
-        webAudioRef.current = null;
-      }
-    } else {
-      if (nativeSoundRef.current) {
-        try {
-          await nativeSoundRef.current.stopAsync();
-          await nativeSoundRef.current.unloadAsync();
-        } catch (_) {}
-        nativeSoundRef.current = null;
-      }
-    }
-  }, []);
-
-  // 1. Carrega a preferência de música salva do AsyncStorage / IndexedDB ao montar
-  // NOTA: Em estrito respeito às políticas do iOS Safari e navegadores modernos, NÃO força autoplay no boot.
+  // 1. Carrega a faixa salva em cache local ao inicializar o app
   useEffect(() => {
     let isMounted = true;
-
-    const loadSavedMusic = async () => {
+    const hydrateLocalSong = async () => {
       try {
-        let storedUri = await AsyncStorage.getItem(STORAGE_MUSIC_URI_KEY);
-        let storedTitle = await AsyncStorage.getItem(STORAGE_MUSIC_TITLE_KEY);
-
-        if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
-          if (!storedUri) storedUri = window.localStorage.getItem(STORAGE_MUSIC_URI_KEY);
-          if (!storedTitle) storedTitle = window.localStorage.getItem(STORAGE_MUSIC_TITLE_KEY);
+        let cached = await AsyncStorage.getItem(STORAGE_YOUTUBE_SONG_KEY);
+        if (
+          !cached &&
+          Platform.OS === 'web' &&
+          typeof window !== 'undefined' &&
+          window.localStorage
+        ) {
+          cached = window.localStorage.getItem(STORAGE_YOUTUBE_SONG_KEY);
         }
 
-        let resolvedUri: string | null = null;
-
-        if (storedUri) {
-          if (storedUri.startsWith('indexeddb:')) {
-            const dbId = storedUri.replace('indexeddb:', '');
-            const dataUrl = await getMediaFromIndexedDB(dbId);
-            resolvedUri = dataUrl;
-          } else {
-            resolvedUri = storedUri;
-          }
-        }
-
-        if (!resolvedUri) {
-          resolvedUri = getDefaultMusicUri();
-        }
-
-        if (isMounted) {
-          setSongUri(resolvedUri);
-          if (storedTitle) {
-            setSongTitle(storedTitle);
-          } else {
-            setSongTitle(DEFAULT_MUSIC_TITLE);
+        if (cached && isMounted) {
+          const parsed = JSON.parse(cached);
+          if (parsed?.videoId) {
+            setCurrentSong(parsed);
           }
         }
       } catch (err) {
-        console.warn('Erro ao carregar música salva:', err);
-        if (isMounted) {
-          setSongUri(getDefaultMusicUri());
-          setSongTitle(DEFAULT_MUSIC_TITLE);
-        }
+        console.warn('Erro ao carregar música salva em cache local:', err);
       }
     };
 
-    loadSavedMusic();
-
+    hydrateLocalSong();
     return () => {
       isMounted = false;
-      cleanupAudioInstance();
     };
-  }, [cleanupAudioInstance]);
+  }, []);
 
-  // Configuração de modo de áudio no nativo
+  // 2. Sincronização em tempo real (onSnapshot) com o documento Firestore compartilhado do casal
+  // Quando qualquer um dos parceiros alterar a música, ambos os dispositivos tocam a mesma faixa!
   useEffect(() => {
-    if (Platform.OS !== 'web') {
-      Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        staysActiveInBackground: true,
-        playsInSilentModeIOS: true,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false,
-      }).catch((e) => console.warn('Erro ao configurar AudioMode:', e));
-    }
-  }, []);
+    if (!coupleCode) return;
 
-  // Toca uma faixa de áudio específica de forma segura em ambas as plataformas
-  const playTrack = useCallback(async (targetUri: string) => {
-    if (!targetUri) return;
-    setIsLoading(true);
-
-    try {
-      if (Platform.OS === 'web') {
-        if (typeof window === 'undefined') return;
-
-        // Cria ou atualiza o elemento HTML5 Audio
-        if (!webAudioRef.current) {
-          const audio = new window.Audio(targetUri);
-          audio.loop = true;
-          audio.preload = 'auto';
-
-          audio.onended = () => {
-            // Se loop estiver desabilitado por algum motivo
-            setIsPlaying(false);
-          };
-
-          audio.onpause = () => {
-            setIsPlaying(false);
-          };
-
-          audio.onplay = () => {
-            setIsPlaying(true);
-          };
-
-          audio.onerror = (e) => {
-            console.warn('Erro no elemento de áudio web:', e);
-            setIsPlaying(false);
-          };
-
-          webAudioRef.current = audio;
-        } else {
-          if (webAudioRef.current.src !== targetUri) {
-            webAudioRef.current.src = targetUri;
-            webAudioRef.current.loop = true;
+    const unsubscribe = subscribeToCoupleDocument(coupleCode, (docData) => {
+      if (docData && docData.youtubeSong && docData.youtubeSong.videoId) {
+        const remoteSong = docData.youtubeSong;
+        setCurrentSong((prev) => {
+          if (prev.videoId !== remoteSong.videoId) {
+            // Salva no cache local para persistência instantânea
+            AsyncStorage.setItem(STORAGE_YOUTUBE_SONG_KEY, JSON.stringify(remoteSong)).catch(() => {});
+            if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+              window.localStorage.setItem(STORAGE_YOUTUBE_SONG_KEY, JSON.stringify(remoteSong));
+            }
+            return remoteSong;
           }
-        }
-
-        await webAudioRef.current.play();
-        setIsPlaying(true);
-      } else {
-        // Nativo: expo-av
-        if (nativeSoundRef.current) {
-          const status = await nativeSoundRef.current.getStatusAsync();
-          if (status.isLoaded) {
-            await nativeSoundRef.current.playAsync();
-            setIsPlaying(true);
-            setIsLoading(false);
-            return;
-          } else {
-            await cleanupAudioInstance();
-          }
-        }
-
-        const { sound } = await Audio.Sound.createAsync(
-          { uri: targetUri },
-          { shouldPlay: true, isLooping: true, volume: 1.0 }
-        );
-
-        nativeSoundRef.current = sound;
-        sound.setOnPlaybackStatusUpdate((status) => {
-          if (status.isLoaded) {
-            setIsPlaying(status.isPlaying);
-          } else if (status.error) {
-            console.warn('Erro na reprodução nativa:', status.error);
-            setIsPlaying(false);
-          }
+          return prev;
         });
-
-        setIsPlaying(true);
       }
-    } catch (err) {
-      console.warn('Falha ao iniciar reprodução:', err);
-      setIsPlaying(false);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [cleanupAudioInstance]);
+    });
 
-  // Pausa a reprodução
-  const pause = useCallback(async () => {
-    try {
-      if (Platform.OS === 'web') {
-        if (webAudioRef.current) {
-          webAudioRef.current.pause();
-        }
-      } else {
-        if (nativeSoundRef.current) {
-          await nativeSoundRef.current.pauseAsync();
-        }
-      }
-      setIsPlaying(false);
-    } catch (err) {
-      console.warn('Erro ao pausar música:', err);
-    }
+    return () => {
+      unsubscribe();
+    };
+  }, [coupleCode]);
+
+  // Controles de Reprodução
+  const play = useCallback(() => {
+    triggerLightHaptic();
+    setIsPlaying(true);
   }, []);
 
-  // Inicia ou retoma a reprodução da faixa atual
-  const play = useCallback(async () => {
-    const target = songUri || getDefaultMusicUri();
-    await playTrack(target);
-  }, [songUri, playTrack]);
-
-  // Alterna entre Play e Pause
-  const togglePlay = useCallback(async () => {
+  const pause = useCallback(() => {
     triggerLightHaptic();
-    if (isPlaying) {
-      await pause();
-    } else {
-      await play();
-    }
-  }, [isPlaying, pause, play]);
+    setIsPlaying(false);
+  }, []);
 
-  // Upload de música personalizada do usuário (MP3 / Áudio) via expo-document-picker
-  const uploadSong = useCallback(async (): Promise<boolean> => {
+  const togglePlay = useCallback(() => {
     triggerLightHaptic();
-    setIsLoading(true);
+    setIsPlaying((prev) => !prev);
+  }, []);
 
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: ['audio/*'],
-        copyToCacheDirectory: true,
-      });
+  // Seleciona uma nova música, persiste localmente e sincroniza na nuvem com o parceiro
+  const selectSong = useCallback(
+    async (newSong: YouTubeSongInfo) => {
+      setCurrentSong(newSong);
+      setIsPlaying(true);
 
-      if (result.canceled || !result.assets || result.assets.length === 0) {
-        setIsLoading(false);
-        return false;
+      // Persiste no cache local (AsyncStorage + window.localStorage)
+      try {
+        await AsyncStorage.setItem(STORAGE_YOUTUBE_SONG_KEY, JSON.stringify(newSong));
+        if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
+          window.localStorage.setItem(STORAGE_YOUTUBE_SONG_KEY, JSON.stringify(newSong));
+        }
+      } catch (err) {
+        console.warn('Erro ao salvar música localmente:', err);
       }
 
-      const asset = result.assets[0];
-      const rawName = asset.name || 'Nossa Música';
-      // Limpa a extensão do arquivo para uma exibição estética e compacta na pílula
-      const cleanTitle = rawName.replace(/\.[^/.]+$/, '').trim() || 'Nossa Música';
-
-      let persistentUri = asset.uri;
-
-      if (Platform.OS === 'web') {
-        // No ambiente Web, converte o arquivo para Data URL e salva em IndexedDB
-        // para garantir persistência total mesmo após fechar o navegador
-        if (asset.file) {
-          const dataUrl = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result as string);
-            reader.onerror = () => reject(new Error('Erro ao ler arquivo de áudio'));
-            reader.readAsDataURL(asset.file as File);
-          });
-          await saveMediaToIndexedDB('namovo_custom_music', dataUrl);
-          persistentUri = dataUrl;
-        } else if (asset.uri.startsWith('blob:')) {
-          const res = await fetch(asset.uri);
-          const blob = await res.blob();
-          const dataUrl = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result as string);
-            reader.onerror = () => reject(new Error('Erro ao converter blob'));
-            reader.readAsDataURL(blob);
-          });
-          await saveMediaToIndexedDB('namovo_custom_music', dataUrl);
-          persistentUri = dataUrl;
-        }
-
-        // Salva ponteiro seguro no AsyncStorage/localStorage sem estourar cota de 5MB
-        const storagePointer = persistentUri.startsWith('data:')
-          ? 'indexeddb:namovo_custom_music'
-          : persistentUri;
-
-        await AsyncStorage.setItem(STORAGE_MUSIC_URI_KEY, storagePointer);
-        await AsyncStorage.setItem(STORAGE_MUSIC_TITLE_KEY, cleanTitle);
-        if (typeof window !== 'undefined' && window.localStorage) {
-          window.localStorage.setItem(STORAGE_MUSIC_URI_KEY, storagePointer);
-          window.localStorage.setItem(STORAGE_MUSIC_TITLE_KEY, cleanTitle);
-        }
-      } else {
-        // No ambiente Nativo (iOS / Android), copia para FileSystem.documentDirectory permanente
-        const baseDir = FileSystem.documentDirectory;
-        if (baseDir) {
-          const ext = asset.name?.includes('.') ? asset.name.split('.').pop() : 'mp3';
-          const targetPath = `${baseDir}namovo_music_${Date.now()}.${ext}`;
-          await FileSystem.copyAsync({
-            from: asset.uri,
-            to: targetPath,
-          });
-          persistentUri = targetPath;
-        }
-
-        await AsyncStorage.setItem(STORAGE_MUSIC_URI_KEY, persistentUri);
-        await AsyncStorage.setItem(STORAGE_MUSIC_TITLE_KEY, cleanTitle);
+      // Sincroniza em tempo real no Firestore do casal
+      try {
+        await saveYouTubeSongToFirestore(newSong, coupleCode || undefined);
+      } catch (err) {
+        console.warn('Erro ao sincronizar música com Firestore:', err);
       }
-
-      setSongUri(persistentUri);
-      setSongTitle(cleanTitle);
-
-      // Limpa a faixa anterior e inicia a nova faixa imediatamente
-      await cleanupAudioInstance();
-      await playTrack(persistentUri);
 
       triggerSuccessHaptic();
-      return true;
-    } catch (err) {
-      console.warn('Erro ao carregar arquivo de áudio:', err);
-      triggerErrorHaptic();
-      return false;
-    } finally {
-      setIsLoading(false);
-    }
-  }, [cleanupAudioInstance, playTrack]);
+    },
+    [coupleCode]
+  );
 
-  // Redefine para a melodia clássica padrão
-  const resetToDefault = useCallback(async () => {
+  const openSearchModal = useCallback(() => {
     triggerLightHaptic();
-    setIsLoading(true);
-    try {
-      await AsyncStorage.removeItem(STORAGE_MUSIC_URI_KEY);
-      await AsyncStorage.removeItem(STORAGE_MUSIC_TITLE_KEY);
-      if (Platform.OS === 'web' && typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.removeItem(STORAGE_MUSIC_URI_KEY);
-        window.localStorage.removeItem(STORAGE_MUSIC_TITLE_KEY);
-      }
+    setSearchModalVisible(true);
+  }, []);
 
-      const defaultUri = getDefaultMusicUri();
-      setSongUri(defaultUri);
-      setSongTitle(DEFAULT_MUSIC_TITLE);
+  const closeSearchModal = useCallback(() => {
+    setSearchModalVisible(false);
+  }, []);
 
-      await cleanupAudioInstance();
-      if (isPlaying) {
-        await playTrack(defaultUri);
-      }
-      triggerSuccessHaptic();
-    } catch (err) {
-      console.warn('Erro ao redefinir música:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [isPlaying, cleanupAudioInstance, playTrack]);
+  const videoUrl = `https://www.youtube.com/watch?v=${currentSong.videoId}`;
 
   return (
     <AudioContext.Provider
       value={{
         isPlaying,
-        songTitle,
-        songUri,
         isLoading,
+        currentSong,
+        searchModalVisible,
         togglePlay,
         play,
         pause,
-        uploadSong,
-        resetToDefault,
+        selectSong,
+        openSearchModal,
+        closeSearchModal,
       }}
     >
       {children}
+
+      {/* 
+        Player de Áudio YouTube Global no Root
+        Fica sempre montado na árvore da aplicação, garantindo que o áudio continue tocando
+        sem interrupções quando o usuário abrir modais (Roleta, Cartas, Viagens, Ajustes, etc.)
+      */}
+      {Platform.OS === 'web' && (
+        <View
+          style={styles.hiddenPlayerContainer}
+          pointerEvents="none"
+          aria-hidden={true}
+        >
+          <ReactPlayer
+            src={videoUrl}
+            playing={isPlaying}
+            controls={false}
+            loop={true}
+            playsInline={true}
+            volume={0.9}
+            width={160}
+            height={90}
+            onPlay={() => {
+              setIsPlaying(true);
+              setIsLoading(false);
+            }}
+            onPause={() => setIsPlaying(false)}
+            onWaiting={() => setIsLoading(true)}
+            onCanPlay={() => setIsLoading(false)}
+            onError={(err: any) => {
+              console.warn('Erro na reprodução do YouTube:', err);
+              setIsLoading(false);
+              setIsPlaying(false);
+            }}
+            config={{
+              youtube: {
+                enablejsapi: 1,
+                rel: 0,
+                playlist: currentSong.videoId,
+                iv_load_policy: 3,
+              },
+            }}
+          />
+        </View>
+      )}
+
+      {/* Modal de Busca no YouTube */}
+      <YouTubeSearchModal
+        visible={searchModalVisible}
+        onClose={closeSearchModal}
+      />
     </AudioContext.Provider>
   );
 };
@@ -391,3 +233,16 @@ export const useAudio = (): AudioContextType => {
   }
   return context;
 };
+
+const styles = StyleSheet.create({
+  hiddenPlayerContainer: {
+    position: 'absolute',
+    bottom: -300,
+    right: -300,
+    width: 160,
+    height: 90,
+    opacity: 0.001,
+    overflow: 'hidden',
+    zIndex: -9999,
+  },
+});
