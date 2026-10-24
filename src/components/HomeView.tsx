@@ -628,6 +628,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
               {ROMANTIC_QUOTES[quoteIndex]}
             </Animated.Text>
             <Text style={styles.quoteHintText}>toque na frase para inspirar</Text>
+            <Text style={styles.copyrightText}>
+              © 2026 Yago Leonardo C F. Todos os direitos reservados.
+            </Text>
           </TouchableOpacity>
 
           {/* Modal da Roleta de Encontros (Canto Superior Esquerdo) */}
@@ -1106,5 +1109,13 @@ const styles = StyleSheet.create({
     marginTop: 3,
     textTransform: 'uppercase',
     fontWeight: '600',
+  },
+  copyrightText: {
+    fontSize: 9,
+    color: '#A9A0B2',
+    textAlign: 'center',
+    letterSpacing: 0.25,
+    marginTop: 7,
+    fontWeight: '400',
   },
 });

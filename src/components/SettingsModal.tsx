@@ -421,6 +421,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <RotateCcw size={15} color={COLORS.textMuted} strokeWidth={2} />
                     <Text style={styles.resetButtonText}>Redefinir e voltar ao onboarding</Text>
                   </TouchableOpacity>
+
+                  {/* Rodapé de Direitos Autorais */}
+                  <View style={styles.copyrightContainer}>
+                    <Text style={styles.copyrightText}>
+                      © 2026 Yago Leonardo C F. Todos os direitos reservados.
+                    </Text>
+                  </View>
                 </ScrollView>
               </Animated.View>
             </TouchableWithoutFeedback>
@@ -738,5 +745,18 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(0, 0, 0, 0.08)',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  copyrightContainer: {
+    marginTop: 22,
+    marginBottom: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  copyrightText: {
+    fontSize: 10.5,
+    color: COLORS.textMuted,
+    textAlign: 'center',
+    letterSpacing: 0.25,
+    fontWeight: '400',
   },
 });
